@@ -2186,28 +2186,23 @@ async function handleAutomation(command: AutomationCommand) {
     case 'screenshot': {
       if (!mainWindow) throw new Error('The desktop window is not available.')
       if (mainWindow.isMinimized()) mainWindow.restore()
-      if (!mainWindow.isVisible()) mainWindow.showInactive()
-      const renderedState = await mainWindow.webContents.executeJavaScript(`new Promise((resolve) => {
-        const finish = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-          const body = document.body
-          const root = document.getElementById('root')
-          resolve({
-            readyState: document.readyState,
-            bodyWidth: body?.scrollWidth ?? 0,
-            bodyHeight: body?.scrollHeight ?? 0,
-            rootChildren: root?.childElementCount ?? 0,
-            visible: document.visibilityState === 'visible',
-          })
-        }))
-        if (document.readyState === 'complete') finish()
-        else window.addEventListener('load', finish, { once: true })
-      })`, true) as {
+      if (!mainWindow.isVisible()) mainWindow.show()
+      const rendererState = await mainWindow.webContents.executeJavaScript(`(() => {
+        const body = document.body
+        const root = document.getElementById('root')
+        return {
+          readyState: document.readyState,
+          bodyWidth: body?.scrollWidth ?? 0,
+          bodyHeight: body?.scrollHeight ?? 0,
+          rootChildren: root?.childElementCount ?? 0,
+        }
+      })()`, true) as {
         readyState: string
         bodyWidth: number
         bodyHeight: number
         rootChildren: number
-        visible: boolean
       }
+      const renderedState = { ...rendererState, visible: mainWindow.isVisible() }
       if (renderedState.readyState !== 'complete'
         || renderedState.bodyWidth <= 0
         || renderedState.bodyHeight <= 0
@@ -2215,15 +2210,33 @@ async function handleAutomation(command: AutomationCommand) {
         || !renderedState.visible) {
         throw new Error(`Rendered UI was not capture-ready: ${JSON.stringify(renderedState)}`)
       }
-      const screenshot = await mainWindow.webContents.capturePage()
-      const png = screenshot.toPNG()
-      if (screenshot.isEmpty() || png.byteLength === 0) {
+      const debug = mainWindow.webContents.debugger
+      const attachForCapture = !debug.isAttached()
+      if (attachForCapture) debug.attach('1.3')
+      let png: Buffer
+      try {
+        await debug.sendCommand('Page.enable')
+        const result = await debug.sendCommand('Page.captureScreenshot', {
+          format: 'png',
+          fromSurface: true,
+          captureBeyondViewport: false,
+        }) as { data?: string }
+        png = Buffer.from(result.data ?? '', 'base64')
+      } finally {
+        if (attachForCapture && debug.isAttached()) debug.detach()
+      }
+      if (png.byteLength === 0) {
         throw new Error(`Rendered UI capture was empty after readiness proof: ${JSON.stringify(renderedState)}`)
       }
       const outputPath = path.join(getDiagnosticsPath(), `screenshot-${Date.now()}.png`)
       await mkdir(getDiagnosticsPath(), { recursive: true })
       await writeFile(outputPath, png)
-      return { path: outputPath, size: screenshot.getSize(), bytes: png.byteLength, renderedState }
+      return {
+        path: outputPath,
+        size: { width: renderedState.bodyWidth, height: renderedState.bodyHeight },
+        bytes: png.byteLength,
+        renderedState,
+      }
     }
     case 'diagnostics':
       return {

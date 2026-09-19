@@ -53,3 +53,12 @@ Initial setup complete.
 - Final authoritative hashes are NSIS `da92c3aa353e1bafcff25e02775ab52396e8becfdd5f3f1c1b71ad5ffa27e28b`, APPX `a6b43fb07778a9d05c7cfa3501452304d10756b47e29493888456c03a612f491`, and provenance `42a683ae733b4ff87ab466c29506641e42c8eb5b69b2bb9e3a0b346de55a7c45`. Store remains blocked; GitHub publication is queued for Switch.
 
 📌 Team update (2026-09-18T20:04:53.087-07:00): Karaoke Studio 0.3.2 is package-approved with zero package-secret findings; Store submission is blocked, and the requested initial `main` publication remains pending without any Scribe commit or push.
+
+- 2026-09-19 final 0.3.3 consolidation: merged seven inbox records into four
+  canonical decisions covering lyric timing recovery, initialized Demucs inference,
+  persisted failure retry compatibility, and the frozen 0.3.3 package. Preliminary
+  package hashes were superseded by Tank's final approved hashes. Updated current
+  identity, propagated the release state, and cleared the inbox without touching
+  release artifacts or performing a commit/push.
+
+📌 Team update (2026-09-19T02:52:27.047-07:00): Karaoke Studio 0.3.3 is package-approved; Store submission remains blocked, the local initial commit is pending, and GitHub push is blocked by noninteractive `mssteve` authentication.

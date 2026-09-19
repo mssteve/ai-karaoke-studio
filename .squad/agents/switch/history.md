@@ -77,17 +77,17 @@ Karaoke Studio targets Windows and later Microsoft Store distribution. Requested
 - 2026-09-18 Karaoke Studio 0.3.3 release: bumped package and lockfile versions to
   0.3.3 and ran the exclusive canonical workflow from one clean build. NSIS then APPX
   were produced sequentially with publishing disabled. Final SHA-256 values are NSIS
-  `f87878f3593eeb0791833f2d4a4db40e0e72ae81bdcdc4aebfef49f6292e2b25`
+  `ac32f31262430f2aa1f0a6ee95e481023839a91f42e07e5be11b543b883c2cab`
   and APPX
-  `7518bb1743d0804c558f764ea04a8649ebcbe196362067c266f9f31dfa6d0e2b`.
+  `797e6c59c9cd413c78a50c922f77c9b736636224807609cfb72432a25c9b31b1`.
 - Provenance SHA-256 is
-  `a55c902763db38678560ac6215f360894bdc198e99397d2f3074d759e4b6ae72`;
+  `7605da0a4830187f53e6736461610e20c70c97eeb4afa5bfed7dbe9c5a9776b5`;
   it records 77 source/release/QA inputs, aggregate
-  `5092be3c301132ca65a01dfdefb4023f264b9dd13688caaf389b13b31f867007`,
+  `c5975f34e39fa9ce8306df033bf917815bc4f2018d8bbbcefb8dd2eeb4fcbb5f`,
   and zero missing, extra, or mismatched entries. Nine fail-closed package scan scopes
   checked 22,952 files and 8,141,006,572 bytes with zero findings.
 - Package-backed validation passed processing suites, rendered UI 9/9, failure/restart
-  6/6 with 110 assertions, lyric timing 33/33, Queue/History 8/8, Demucs 4/4,
+  6/6 with 113 assertions, lyric timing 33/33, Queue/History 8/8, Demucs 4/4,
   a representative private Music subset 2/2 with 8/8 stems, and automation isolation
   3/3. All 16 authorized private source files retained their hashes, sizes, and
   timestamps; evidence records only an anonymized aggregate.
@@ -100,4 +100,7 @@ Karaoke Studio targets Windows and later Microsoft Store distribution. Requested
   Package verdict is **APPROVE PACKAGE / BLOCK STORE SUBMISSION**: identity
   `KaraokeStudio` / publisher `CN=ms` remain placeholders and both artifacts are
   unsigned. No signing, Store submission, commit, or push occurred. Canonical evidence:
-  `scripts\qa-artifacts\release-0.3.3-switch\release-verdict.json`.
+  `scripts\qa-artifacts\release-0.3.3-cdp-final\release-verdict.json`
+  (SHA-256 `98e8a406b01e695d1e6d2288ac7a78dc9ef6f47b75475a06baf9b9d6ef25f69e`).
+
+📌 Team update (2026-09-19T02:52:27.047-07:00): Switch's preliminary 0.3.3 hashes are superseded by Tank's frozen approval: NSIS `04d9c061...`, APPX `fe78e626...`, provenance `fecd4474...`. The local initial commit remains pending; GitHub push is blocked by noninteractive `mssteve` authentication.

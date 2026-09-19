@@ -140,3 +140,53 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   uses the validated boundary, initializes four sources, validates names/shapes, and
   releases the ONNX session. Exact component attribution, FIFO continuation, restart
   persistence, and targeted Demucs retry all passed. No package was produced by Tank.
+
+- 2026-09-19 persisted retry availability review: APPROVE source/runtime behavior,
+  pending a fresh Switch release because the rendered-DOM harness changed after the
+  current provenance was generated. The compatibility merge adds a normalized
+  top-level failure only when its component is absent from derived deliverable issues,
+  preserving current-schema deduplication and exact Demucs targeting.
+- Fresh build passed; processing UI passed 24/24, resumability 31/31, scheduler
+  coverage passed, rendered DOM passed 10/10 with zero renderer errors, and failure
+  runtime passed 6/6 scenarios with 113 assertions. A first concurrent rendered run
+  timed out; its recursive cleanup completed, and an isolated rerun passed fully.
+- The same anonymized previously failed source independently completed through the
+  packaged rendered Try again action. Duplicate clicks coalesced and disabled/removed
+  the action, all four stems were decodable and duration-exact at 198.089433 seconds,
+  all playback modes became ready, failure and scheduler state cleared, restart
+  persistence passed, and the source hash and timestamp remained unchanged.
+- Screenshot removal from the focused harness is accepted: it retains real rendered
+  DOM snapshots, real UI clicks, exact disabled-state checks, playback behavior, and
+  renderer diagnostics. Electron capture remains available but unreliable in this
+  environment; the harness no longer treats capture failure as product failure.
+  Reports contain no private source path, title, or artist, and packaged automation is
+  still unavailable without its explicit flag. Switch must rebuild NSIS/APPX and
+  provenance from the unchanged approved product source plus the current harness.
+
+- 2026-09-19 final frozen 0.3.3 review: **APPROVE PACKAGE / BLOCK STORE
+  SUBMISSION**. Independently recomputed NSIS
+  `04d9c06191ea28fefbdd4cfa5f809aa05ab3b9606dad001ce64cfe801ee9e6f8`,
+  APPX `fe78e626287096a16111d937c722d70d255bf0ec0749e267a2e66dcacf175a09`,
+  and provenance
+  `fecd4474affcc053016482b1d4ed2dc56e62ba1412eb12ab313d32b11fac0048`.
+  The 77-file source/harness aggregate remains
+  `c5975f34e39fa9ce8306df033bf917815bc4f2018d8bbbcefb8dd2eeb4fcbb5f`
+  with zero missing, extra, or mismatched files. Current build outputs matched the
+  packaged ASAR byte-for-byte; payload EXE/ASAR hashes remain
+  `68f68cade5eef50593646ae2f205b351a251108587ad0cda6b4c5d62247fe3b5`
+  and `ad142508e73179857f11da30f152440c3df56a00014f2eaa180235d5546fa707`.
+- Fresh secret rescans of current staging and extracted APPX payload passed all six
+  tree/packed-ASAR/unpacked-ASAR scopes with zero findings, matching the provenance
+  nine-scope zero-finding result. Timing reran 33/33. Post-freeze packaged gates passed
+  rendered 10/10 with two visually reviewed nonempty app-only screenshots, runtime
+  6/6/113, Queue/History 8/8 with two nonempty screenshots, and Demucs 4/4. Automation
+  isolation remained 3/3. The exact-payload real failed-Music retry retained 4/4
+  duration-exact stems, restart persistence, and unchanged source hash/timestamp; all
+  16 authorized private sources still match their baseline hashes, sizes, and times.
+- APPX inspection confirmed version 0.3.3.0, x64, full-trust `runFullTrust`,
+  application ID `KaraokeStudio`, executable `app\Karaoke Studio.exe`, readable
+  payload, and all four required assets. Store submission remains blocked because
+  identity `KaraokeStudio` and publisher `CN=ms` are placeholders and both artifacts
+  are unsigned. No rebuild, signing, submission, commit, or push occurred.
+
+📌 Team update (2026-09-19T02:52:27.047-07:00): Tank's lyric, Demucs, retry, and final frozen 0.3.3 approvals are canonical. Authoritative NSIS/APPX/provenance hashes are `04d9c061...`, `fe78e626...`, and `fecd4474...`; Store remains blocked and no commit/push occurred.

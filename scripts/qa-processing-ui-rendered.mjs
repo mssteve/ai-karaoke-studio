@@ -15,10 +15,10 @@ const executable = path.resolve(appArg)
 const entry = path.resolve(entryArg)
 const profile = path.resolve(profileArg)
 const output = path.resolve(outputArg)
-process.env.KARAOKE_AUTOMATION_PIPE = `\\\\.\\pipe\\karaoke-studio-processing-ui-${process.pid}`
 const execFileAsync = promisify(execFile)
 const cases = []
 let child
+let launchSequence = 0
 
 function record(id, passed, evidence) {
   cases.push({ id, status: passed ? 'passed' : 'failed', evidence })
@@ -58,25 +58,51 @@ async function capture(name) {
   assert.ok(file.size > 10_000)
   return target
 }
-async function stop() {
-  if (!child || child.exitCode !== null) return
-  const pid = child.pid
-  await execFileAsync('powershell.exe', ['-NoProfile', '-Command',
-    `$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if($p){$null=$p.CloseMainWindow();$p.WaitForExit(5000)}`])
-  if (child.exitCode === null) {
-    await execFileAsync('powershell.exe', ['-NoProfile', '-Command',
-      `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`])
-  }
-}
-
-await mkdir(output, { recursive: true })
-try {
-  await verifyLocalElectronEntry(executable, entry)
-  child = spawn(executable, [entry, `--user-data-dir=${profile}`, '--enable-private-automation'], {
+async function start(dataRoot = profile) {
+  launchSequence += 1
+  process.env.KARAOKE_AUTOMATION_PIPE =
+    `\\\\.\\pipe\\karaoke-studio-processing-ui-${process.pid}-${launchSequence}`
+  const launched = spawn(executable, [entry, `--user-data-dir=${dataRoot}`, '--enable-private-automation'], {
     cwd: path.dirname(entry),
     stdio: 'ignore',
   })
-  await waitFor(() => sendCommand({ action: 'status' }, { timeoutMs: 500 }), 'automation pipe', 30_000)
+  child = launched
+  if (!Number.isInteger(launched.pid)) {
+    child = undefined
+    throw new Error('Electron did not provide a process ID.')
+  }
+  await Promise.race([
+    waitFor(() => sendCommand({ action: 'status' }, { timeoutMs: 500 }), 'automation pipe', 30_000),
+    new Promise((_, reject) => {
+      launched.once('error', reject)
+      launched.once('exit', (code, signal) => {
+        reject(new Error(`Electron exited before automation startup (code=${code}, signal=${signal}).`))
+      })
+    }),
+  ]).catch(async (error) => {
+    if (child === launched) await stop()
+    throw error
+  })
+}
+async function stop() {
+  if (!child) return
+  const pid = child.pid
+  if (!Number.isInteger(pid)) {
+    child = undefined
+    return
+  }
+  await execFileAsync('powershell.exe', ['-NoProfile', '-Command',
+    `$root=${pid}; $all=Get-CimInstance Win32_Process; $ids=[System.Collections.Generic.List[int]]::new(); `
+    + `function Add-Children([int]$parent){ foreach($p in $all | Where-Object ParentProcessId -eq $parent){ `
+    + `Add-Children $p.ProcessId; $ids.Add($p.ProcessId) } }; Add-Children $root; $ids.Add($root); `
+    + `foreach($id in $ids){ Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }`])
+  child = undefined
+  await delay(250)
+}
+await mkdir(output, { recursive: true })
+try {
+  await verifyLocalElectronEntry(executable, entry)
+  await start()
   const fixtureSongs = JSON.parse(await readFile(path.join(profile, 'fixture-library.json'), 'utf8'))
   await sendCommand({ action: 'inject-library', songs: fixtureSongs })
 

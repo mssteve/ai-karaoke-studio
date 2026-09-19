@@ -2,25 +2,30 @@
 
 ## Active Decisions
 
-### 2026-09-18T21:10:11.253-07:00: Deterministic Whisper timestamp normalization
+### 2026-09-19T02:52:27.047-07:00: Deterministic lyric timestamp normalization and fallback (consolidated)
 
-**By:** Morpheus
+**By:** Steve, Morpheus, Neo, Tank
 
-**What:** Whisper word fragments are normalized before lyric grouping and validation. Nonempty fragments must have finite, nonnegative, locally orderable timestamps. Exact duplicates and empty fragments are discarded; otherwise valid fragments may be stably sorted by start/end, ends are clamped to known media duration and to the next fragment boundary, and only a bounded 0.04-second minimum duration repair is permitted with a 0.01-second comparison epsilon. Ambiguous simultaneous starts, non-finite/negative/reversed timestamps, fragments wholly outside known media, and intervals without room for the minimum duration fail explicitly. Unicode text is retained. Final lyric lines must be positive-duration, monotonic, and non-overlapping.
+**What:** Classify nonempty Whisper fragments before ordering, stable-sort valid timing
+by start, end, and original index, and repair overlaps against chronological boundaries.
+Malformed Unicode text is never discarded: associate it with the preceding valid input
+fragment, place it at that boundary, or anchor it at zero when none exists. Consecutive
+fallback text divides available gaps into intervals of at least 40ms; when space is
+insufficient, merge text deterministically into an available or adjacent valid line.
+Only globally unusable timelines—empty output, invalid duration, or no constructible
+40ms interval—fail. Persist independent counts for sorting, overlap repair,
+invalid-duration expansion, fallback placement, merging, and discard.
 
-Transcription and timed lyrics remain separate resumable deliverables from all audio outputs. A normalization failure is attributed to `whisper-transcription`, leaves valid Original/Instrumental/Vocal/Enhanced modes published and playable, persists a terminal partial song, releases the global FIFO slot, and permits a lyrics-only retry from valid Vocal without rerunning Demucs or mixes.
+Transcription and timed lyrics remain separately retryable from audio outputs. Tank's
+independent re-review approved the final behavior after timing 33, rendered UI 9/9,
+runtime recovery 6/6 with 110 assertions, and Queue/History 8/8. The installed
+`76.76–101.72` / `80.38–85.78` case now normalizes to `76.76–80.38` followed by
+`80.38–85.78`; 30ms and 39ms expand while exactly 40ms remains unchanged.
 
-**Why:** The installed failure was caused by an anomalous word-timestamp fragment spanning `76.76–101.72`; the prior grouper emitted it as a long line before a valid contained fragment at `80.38–85.78`, so validation rejected the later line. Boundary normalization reconstructs usable word timing without allowing one broad fragment to block later lyrics, while explicit rejection prevents invented timing for genuinely corrupt data.
-
-### 2026-09-18T21:20:43.002-07:00: Per-line degraded timing fallback
-
-**By:** Steve, Morpheus
-
-**What:** A malformed nonempty Whisper line no longer fails the whole transcription. Its original Unicode text is retained and its fallback start is the preceding valid end, or zero for the first line. Fallback duration is positive and bounded: use up to two seconds, divide space deterministically across consecutive malformed lines, stop before the next valid boundary, and clamp to known media duration. A 0.04-second minimum remains mandatory. Repaired and fallback lines can never overlap. Empty fragments and exact duplicates remain discardable. Only globally empty output, invalid media duration, or output with insufficient space for any safe positive sequence fails.
-
-Fallback count, overlap repairs, discarded fragments, and explanatory messages persist on both transcription and lyrics outcomes. The Lyrics UI discloses degraded synchronization and offers lyrics retry guidance while all audio modes remain available.
-
-**Why:** Users prefer complete lyric text with explicitly degraded timing over losing the entire lyrics deliverable because one Whisper fragment is malformed. Persisted diagnostics keep the fallback visible rather than silently presenting inferred timing as precise.
+**Why:** One malformed or broad timestamp must not suppress later valid lyrics or fail
+otherwise usable processing. Deterministic bounded recovery preserves all lyric text,
+keeps synchronization degradation explicit, and maintains valid monotonic,
+non-overlapping output without inventing sub-minimum timing.
 
 ### Whisper timed transcription
 
@@ -203,13 +208,22 @@ Store submission did not occur. APPX identity `KaraokeStudio` and publisher `CN=
 
 **Why:** The user requested publication only after the initial repository contents and safety boundaries are complete and reviewed. The remote operation remains pending for Switch rather than being mixed into documentation consolidation.
 
-### 2026-09-18T21:39:33.060-07:00: Validated Demucs inference boundary
+### 2026-09-19T02:52:27.047-07:00: Validated Demucs inference boundary and acceptance (consolidated)
 
-**By:** Apoc
+**By:** Apoc, Tank
 
 **What:** The application must construct the installed `ONNXHTDemucs` model with its JavaScript class fields initialized, then attach the CPU-capped ONNX session. Every inference validates session names and both model outputs for presence, rank, compatible shape prefix, and data length before Demucs split code may dereference them. Failures carry safe stage/name/shape context, release the session and single FIFO slot, publish no partial stems, persist as retryable `demucs` separation failures, and preserve already valid Original or listening outputs. Short inputs and trailing splits are padded and trimmed only through the dependency's deterministic path and must preserve exact audio frame duration.
 
-**Why:** The packaged crash was not caused by CPU half-core limits, execution provider, memory pressure, splitting, or path resolution. `Object.create(ONNXHTDemucs.prototype)` skipped the model's own `sources`, `audioChannels`, `samplerate`, and `segment` fields, so `applySplits` read `.length` from undefined. Keeping validation in the application runner avoids an untracked vendor edit while producing actionable errors for future ONNX contract drift.
+Tank approved the corrected source/runtime after inference 14/14, contracts 6/6,
+resources 24/24, resume 31/31, artifacts 9/9, real short/trailing inference 18/18,
+runtime 6/6/110, timing 33/33, and Queue/History 8/8. Real-library acceptance produced
+16/16 files and 64/64 valid stems; the fresh packaged subset produced 2/2 and 8/8.
+
+**Why:** The packaged crash was not caused by CPU half-core limits, execution provider,
+memory pressure, splitting, or path resolution. `Object.create(ONNXHTDemucs.prototype)`
+skipped the model's `sources`, `audioChannels`, `samplerate`, and `segment` fields, so
+`applySplits` read `.length` from undefined. Application-local initialization and
+validation avoid an untracked vendor edit while producing actionable contract errors.
 
 ## Governance
 
@@ -225,10 +239,53 @@ Store submission did not occur. APPX identity `KaraokeStudio` and publisher `CN=
 
 **Why:** Launching the package root while `dist-electron\main.js` is absent or during a clean-build window produces Electron's “Unable to find Electron app” / missing-module dialog. A guarded local entry makes the dependency explicit without slowing normal packaged launches.
 
-### 2026-09-18T23:17:27.011-07:00: Persisted failure compatibility for targeted retry
+### 2026-09-19T02:52:27.047-07:00: Persisted failure compatibility for targeted retry (consolidated)
 
-**By:** Trinity
+**By:** Trinity, Tank
 
 **What:** Renderer issue derivation must merge a song's normalized top-level `processingFailure` whenever its exact component is not already represented by a failed deliverable outcome. This includes stale installed records where terminal Demucs failure is retryable at the top level but the separation outcome remains `missing`. The merged issue exposes the exact component's Try again action; current-schema failures remain deduplicated.
 
-**Why:** Installed 0.3.2 persisted two real Demucs `model.sources` TypeErrors as terminal retryable `demucs` failures with no active or queued state, but the renderer discarded them solely because a deliverable store existed. The backend already accepted a separation retry from this state. Compatibility rendering restores recovery across restart while preserving per-component validation and FIFO scheduling.
+Tank approved source and packaged behavior after a fresh build, processing UI 24/24,
+resume 31/31, rendered DOM 10/10, and runtime 6/6 with 113 assertions. A real previously
+failed source recovered through the rendered Try again action with one effective job
+after duplicate clicks, four decodable duration-exact stems, all modes ready, cleared
+failure/scheduler state, restart persistence, and unchanged source hash/timestamp.
+
+**Why:** Installed 0.3.2 persisted real Demucs `model.sources` TypeErrors as terminal
+retryable failures while the separation outcome remained `missing`; the renderer hid
+them solely because a deliverable store existed. Compatibility rendering restores
+recovery across restart while preserving deduplication, per-component validation, and
+FIFO scheduling.
+
+### 2026-09-19T02:52:27.047-07:00: Frozen 0.3.3 package approval and Store block (consolidated)
+
+**By:** Steve, Switch, Tank
+
+**What:** Per Steve's version directive, the approved lyric, Demucs, persisted retry,
+safe local launch, Queue/History, and processing source is packaged as 0.3.3 / APPX
+0.3.3.0. Switch's preliminary 0.3.3 candidates are superseded by the authoritative
+frozen candidates approved for package use:
+NSIS SHA-256 `04d9c06191ea28fefbdd4cfa5f809aa05ab3b9606dad001ce64cfe801ee9e6f8`,
+APPX SHA-256 `fe78e626287096a16111d937c722d70d255bf0ec0749e267a2e66dcacf175a09`,
+and provenance SHA-256
+`fecd4474affcc053016482b1d4ed2dc56e62ba1412eb12ab313d32b11fac0048`.
+Independent review confirmed the 77-file source aggregate
+`c5975f34e39fa9ce8306df033bf917815bc4f2018d8bbbcefb8dd2eeb4fcbb5f`
+with zero differences, exact packaged build outputs, payload EXE
+`68f68cade5eef50593646ae2f205b351a251108587ad0cda6b4c5d62247fe3b5`,
+payload ASAR
+`ad142508e73179857f11da30f152440c3df56a00014f2eaa180235d5546fa707`,
+zero secret findings, all mandatory functional gates, and unchanged authorized private
+sources.
+
+The verdict is **APPROVE PACKAGE / BLOCK STORE SUBMISSION**. APPX 0.3.3.0 is x64,
+full-trust, readable, and contains all required assets, but its identity
+`KaraokeStudio` and publisher `CN=ms` remain placeholders and both NSIS and APPX are
+unsigned. QA passed rendered 10/10, runtime 6/6 with 113 assertions, timing 33,
+Queue/History 8/8, Demucs 4/4, and zero secret findings. Partner Center
+association/configuration and a fresh full release are required before Store
+submission. The local initial commit remains pending, and GitHub push remains blocked
+by noninteractive `mssteve` authentication. No commit or push occurred.
+
+**Why:** The frozen package is internally consistent and independently validated, but
+placeholder Store identity metadata and absent signatures prevent submission.

@@ -55,3 +55,5 @@ Karaoke Studio is a professional Windows karaoke desktop app. Requested by Steve
 - `deliverableIssues` now merges any persisted top-level failure not already represented by a failed outcome. This restores the exact retryable separation action for stale installed records without duplicating current-schema failures.
 - Regression coverage now includes the real TypeError text and installed persisted shape. Focused build/UI/resume/scheduler tests passed; rendered UI passed 10/10 with an enabled Try again; runtime failure/restart/retry passed 6/6 scenarios and 113 assertions, including one rendered click, duplicate suppression, corrected Demucs completion, persistence, slot release, and later-song continuation.
 - Switch was notified immediately that the in-progress 0.3.3 candidate predating this source fix must be discarded and rebuilt.
+
+📌 Team update (2026-09-19T02:52:27.047-07:00): Tank approved Trinity's persisted Demucs failure retry UI, including real packaged recovery to 4/4 stems. The fix is included in the frozen 0.3.3 package; preliminary package hashes are superseded.
