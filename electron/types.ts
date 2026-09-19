@@ -61,6 +61,19 @@ export interface EnhancedProcessingDiagnostics {
   caveat?: string
 }
 
+export interface TranscriptionTimingDiagnostics {
+  fallbackUsed: boolean
+  fallbackLineCount: number
+  repairedOverlapCount: number
+  invalidDurationExpansionCount: number
+  sortedFragmentCount: number
+  mergedFragmentCount: number
+  discardedFragmentCount: number
+  messages: string[]
+}
+
+export type ProcessingDiagnostics = EnhancedProcessingDiagnostics | TranscriptionTimingDiagnostics
+
 export interface ComponentFailure {
   component: ProcessingComponentId
   code: 'execution-failed' | 'invalid-artifact' | 'missing-dependency' | 'interrupted' | 'invalid-request'
@@ -77,7 +90,7 @@ export interface DeliverableOutcome {
   updatedAt: string
   failure?: ComponentFailure
   blockedBy?: DeliverableId[]
-  diagnostics?: EnhancedProcessingDiagnostics
+  diagnostics?: ProcessingDiagnostics
 }
 
 export interface DeliverableStore {
@@ -100,7 +113,7 @@ export interface ProcessingItem {
   completedAt?: string
   elapsedMs?: number
   error?: string
-  diagnostics?: EnhancedProcessingDiagnostics
+  diagnostics?: ProcessingDiagnostics
 }
 
 export interface ProcessingDetails {
@@ -127,6 +140,7 @@ export interface TranscriptionResult {
   languageName?: string
   languageSource?: LyricLanguage['languageSource']
   lines: LyricLine[]
+  timingDiagnostics?: TranscriptionTimingDiagnostics
 }
 
 export interface LyricLanguage {

@@ -1,11 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import type { TranscriptionResult } from './types.js'
 import { onnxSessionOptions } from './processing-resources.js'
+import {
+  normalizeWhisperChunksWithDiagnostics,
+  type TimedTextFragment,
+} from './transcription-timing.js'
 
-interface WordChunk {
-  text: string
-  timestamp: [number | null, number | null]
-}
+type WordChunk = TimedTextFragment
 
 interface WhisperModel {
   (inputs: {
@@ -117,28 +118,6 @@ async function detectLanguage(
   return { language, languageCode }
 }
 
-function validateLines(lines: TranscriptionResult['lines'], audioDuration: number) {
-  let previousStart = 0
-  let previousEnd = 0
-  for (const [index, line] of lines.entries()) {
-    if (!line.text.trim()
-      || !Number.isFinite(line.start)
-      || !Number.isFinite(line.end)
-      || line.start < 0
-      || line.end < line.start
-      || line.start < previousStart
-      || line.end < previousEnd
-      || line.end > audioDuration + 1) {
-      throw new Error(
-        `Whisper produced invalid or unordered timestamps at lyric line ${index + 1}`
-        + ` (${line.start}-${line.end}, previous ${previousStart}-${previousEnd}).`,
-      )
-    }
-    previousStart = line.start
-    previousEnd = line.end
-  }
-}
-
 async function main() {
   const [audioPath, cacheDir, outputPath, rawThreads] = process.argv.slice(2)
   if (!audioPath || !cacheDir || !outputPath) {
@@ -189,64 +168,26 @@ async function main() {
     })
     report({ phase: 'transcription', status: 'complete', chunks: result.chunks?.length ?? 0 })
 
-    const words = (result.chunks ?? []).filter((chunk) => {
-      const start = chunk.timestamp[0]
-      const end = chunk.timestamp[1] ?? start
-      return chunk.text.trim()
-        && start !== null
-        && Number.isFinite(start)
-        && end !== null
-        && Number.isFinite(end)
-        && end >= start
-    }).sort((left, right) => {
-      const leftStart = left.timestamp[0] ?? 0
-      const rightStart = right.timestamp[0] ?? 0
-      if (leftStart !== rightStart) return leftStart - rightStart
-      return (left.timestamp[1] ?? leftStart) - (right.timestamp[1] ?? rightStart)
-    })
-    const lines: Array<{ text: string; start: number; end: number }> = []
-    let current: WordChunk[] = []
-
-    for (const word of words) {
-      const wordStart = word.timestamp[0] ?? 0
-      const currentEnd = current.at(-1)?.timestamp[1] ?? current.at(-1)?.timestamp[0] ?? wordStart
-      if (current.length && wordStart - currentEnd >= 1.5) {
-        lines.push({
-          text: current.map((item) => item.text).join('').trim(),
-          start: current[0].timestamp[0] ?? 0,
-          end: currentEnd,
-        })
-        current = []
-      }
-      current.push(word)
-      const text = current.map((item) => item.text).join('').trim()
-      const start = current[0].timestamp[0] ?? 0
-      const end = word.timestamp[1] ?? word.timestamp[0] ?? start
-      if (text.length >= 48 || end - start >= 5 || /[.!?。！？]$/.test(text)) {
-        lines.push({ text, start, end })
-        current = []
-      }
-    }
-
-    if (current.length) {
-      lines.push({
-        text: current.map((item) => item.text).join('').trim(),
-        start: current[0].timestamp[0] ?? 0,
-        end: current.at(-1)?.timestamp[1] ?? current.at(-1)?.timestamp[0] ?? 0,
-      })
-    }
-
-    validateLines(lines, audio.length / 16000)
+    const normalizedTiming = normalizeWhisperChunksWithDiagnostics(
+      result.chunks ?? [],
+      audio.length / 16000,
+    )
     const transcript: TranscriptionResult = {
       text: result.text.trim(),
       language,
       languageCode,
       languageName: language,
       languageSource: 'detected',
-      lines,
+      lines: normalizedTiming.lines,
+      timingDiagnostics: normalizedTiming.diagnostics,
     }
     await writeFile(outputPath, JSON.stringify(transcript, null, 2), 'utf8')
-    report({ phase: 'lyrics', status: 'written', lines: lines.length })
+    report({
+      phase: 'lyrics',
+      status: 'written',
+      lines: normalizedTiming.lines.length,
+      fallbackLines: normalizedTiming.diagnostics.fallbackLineCount,
+    })
   } finally {
     await transcriber.dispose()
   }

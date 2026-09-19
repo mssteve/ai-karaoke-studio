@@ -104,3 +104,39 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   Store submission remains blocked by placeholder APPX identity/publisher and unsigned
   artifacts. Evidence:
   `scripts/qa-artifacts/processing-packaged-0.3.2-tank-rereview/tank-verdict.json`.
+
+- 2026-09-18 timestamp-normalization re-review after Neo's independent revision:
+  APPROVE. Fresh build and focused suites passed: timing 33, processing UI 21,
+  resume 31, resources 24, artifacts 9, scheduler/progress, runtime recovery 6/6
+  with 110 assertions, rendered UI 9/9, and Queue/History 8/8.
+- Every prior rejection was closed: malformed text no longer displaces sorted early
+  valid lyrics, no-gap Unicode text is merged without loss, 30/39ms expand while
+  40ms stays unchanged, and sorting/overlap/expansion/fallback/merge/discard counters
+  report independently. The installed `76.76–101.72` containment regression clamps
+  exactly to `76.76–80.38` before `80.38–85.78`; boundary-zero, consecutive,
+  constrained, duration-bound, Unicode, and globally unusable cases all passed.
+- Partial audio, one-slot FIFO continuation, restart recovery, targeted lyrics-only
+  retry, and Queue/History behavior remained correct. Four fresh screenshots were
+  visibly rendered and nonempty at 309,322, 334,158, 312,744, and 279,871 bytes;
+  capture readiness requires a complete visible root, positive dimensions/children,
+  two animation frames, and a nonempty NativeImage. Evidence is under
+  `scripts/qa-artifacts/transcription-timing-tank-rereview-{runtime,ui,queue}-2026-09-18/`.
+  No package was produced; Demucs remains a separate pending fix.
+
+- 2026-09-18 final Demucs inference review: APPROVE for Switch packaging. The root
+  cause is confirmed as prototype-only construction skipping Demucs class-field
+  initialization; no tracked vendored dependency file is edited. Fresh build passed,
+  followed by inference 14/14, supplemental boundary 6/6, resources 24/24, resume
+  31/31, artifacts 9/9, real short/trailing Demucs 18/18, failure/restart 6/6 with
+  110 assertions, transcription timing 33/33, and Queue/History 8/8.
+- The retained anonymized real-library report proves 16/16 files were attempted and
+  passed sequentially, yielding 64/64 nonempty decodable duration-exact stems with
+  unchanged source hashes/timestamps and no private paths or descriptive metadata.
+  A fresh packaged subset independently passed 2/2 files and 8/8 stems under the
+  sequential CPU half-core policy with no partial publication or source mutation.
+- Current installed 0.3.2 is independently confirmed stale: its ASAR hash matches the
+  retained proof, it still uses prototype-only construction, reproduces the
+  uninitialized-sources failure, and publishes zero stems. The fixed isolated package
+  uses the validated boundary, initializes four sources, validates names/shapes, and
+  releases the ONNX session. Exact component attribution, FIFO continuation, restart
+  persistence, and targeted Demucs retry all passed. No package was produced by Tank.

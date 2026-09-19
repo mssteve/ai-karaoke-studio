@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sendCommand } from './control.mjs'
+import { verifyLocalElectronEntry } from './local-electron-entry.mjs'
 
 const execFileAsync = promisify(execFile)
 const args = parseArgs(process.argv.slice(2))
@@ -318,7 +319,11 @@ async function startApp() {
     if (error.message === 'A pre-existing Karaoke Studio automation pipe is active.') throw error
   }
   const launchArgs = [`--user-data-dir=${profile}`, '--enable-private-automation']
-  if (args.electronEntry) launchArgs.unshift(path.resolve(args.electronEntry))
+  if (args.electronEntry) {
+    const entry = path.resolve(args.electronEntry)
+    await verifyLocalElectronEntry(executable, entry)
+    launchArgs.unshift(entry)
+  }
   child = spawn(executable, launchArgs, {
     cwd: path.dirname(executable),
     stdio: 'ignore',

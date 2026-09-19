@@ -65,13 +65,14 @@ export function deliverableIssues(song: Song): DeliverableIssue[] {
       retryable: outcome.state === 'failed' && Boolean(outcome.failure?.retryable),
       blockedBy: outcome.blockedBy ?? [],
     }))
-  if (song.processingFailure?.component === 'library-save') {
+  const persistedFailure = song.processingFailure
+  if (persistedFailure && !issues.some((issue) => issue.component === persistedFailure.component)) {
     issues.unshift({
-      component: 'library-save',
+      component: persistedFailure.component,
       state: 'failed',
-      label: componentLabels['library-save'],
-      reason: song.processingFailure.message,
-      retryable: song.processingFailure.retryable,
+      label: componentLabels[persistedFailure.component],
+      reason: persistedFailure.message,
+      retryable: persistedFailure.retryable,
       blockedBy: [],
     })
   }
@@ -143,7 +144,7 @@ export function retryActivity(song: Song, component: ProcessingComponentId, loca
 export function enhancedSummary(song: Song) {
   const diagnostics = song.deliverables?.outcomes.enhanced.diagnostics
     ?? song.processingDetails?.items.find((item: ProcessingItem) => item.id === 'enhanced')?.diagnostics
-  if (!song.enhancedUrl || !diagnostics) return undefined
+  if (!song.enhancedUrl || !diagnostics || !('standard' in diagnostics)) return undefined
   const output = diagnostics.output
   const measurements = output.integratedLufs === null || output.truePeakDbtp === null
     ? 'Output was too quiet for reliable loudness measurement.'
@@ -158,4 +159,13 @@ export function enhancedSummary(song: Song) {
       : undefined,
     caveat: diagnostics.caveat,
   }
+}
+
+export function lyricsTimingSummary(song: Song) {
+  const diagnostics = song.deliverables?.outcomes.lyrics.diagnostics
+    ?? song.deliverables?.outcomes['whisper-transcription'].diagnostics
+  if (!diagnostics || !('fallbackUsed' in diagnostics) || !diagnostics.fallbackUsed) return undefined
+  return `${diagnostics.fallbackLineCount} lyric line${
+    diagnostics.fallbackLineCount === 1 ? '' : 's'
+  } use fallback timing. Audio is unaffected; retry lyrics for more precise synchronization.`
 }

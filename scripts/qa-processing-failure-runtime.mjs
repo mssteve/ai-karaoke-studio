@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sendCommand } from './control.mjs'
+import { verifyLocalElectronEntry } from './local-electron-entry.mjs'
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg'
 
 const [appArg, entryArg, fixtureArg, outputArg] = process.argv.slice(2)
@@ -16,6 +17,7 @@ const entry = path.resolve(entryArg)
 const fixture = path.resolve(fixtureArg)
 const output = path.resolve(outputArg)
 const profile = path.join(output, 'profile')
+process.env.KARAOKE_AUTOMATION_PIPE = `\\\\.\\pipe\\karaoke-studio-processing-runtime-${process.pid}`
 const cases = []
 let assertions = 0
 let child
@@ -44,6 +46,7 @@ const command = (value, timeoutMs = 120_000) => sendCommand(value, { timeoutMs }
 const song = (status, id) => status.songs.find((candidate) => candidate.id === id)
 
 async function start() {
+  await verifyLocalElectronEntry(executable, entry)
   child = spawn(executable, [
     entry,
     `--user-data-dir=${profile}`,
@@ -82,6 +85,7 @@ async function createProfile() {
   }
   const ids = [
     'source-target', 'source-next',
+    'demucs-target', 'demucs-next',
     'stem-target', 'stem-next',
     'whisper-target', 'whisper-next',
     'enhanced-target', 'enhanced-next',
@@ -145,6 +149,9 @@ async function removeTargetArtifact(point, id) {
   if (point === 'source-preparation') {
     await rm(path.join(root, 'source.wav'), { force: true })
     await rm(path.join(root, 'speech.wav'), { force: true })
+  } else if (point === 'demucs') {
+    await Promise.all(['vocals', 'drums', 'bass', 'other']
+      .map((stem) => rm(path.join(root, 'stems', `${stem}.wav`), { force: true })))
   } else if (point === 'stem-other') {
     await rm(path.join(root, 'stems', 'other.wav'), { force: true })
   } else if (point === 'whisper-transcription') {
@@ -154,16 +161,28 @@ async function removeTargetArtifact(point, id) {
   }
 }
 
-async function runScenario({ id, point, retryComponent, expectedFailure, readySiblings }) {
+async function runScenario({
+  id,
+  point,
+  retryComponent,
+  expectedFailure,
+  readySiblings,
+  normalizationFixture = false,
+}) {
   const target = `${id}-target`
   const next = `${id}-next`
+  console.log(`Running processing failure scenario: ${id}`)
   await removeTargetArtifact(point, target)
   await removeTargetArtifact('enhanced', next)
   await command({
     action: 'qa-configure',
     songId: target,
-    failurePoint: point,
+    failurePoint: normalizationFixture ? undefined : point,
+    failureMessage: id === 'demucs'
+      ? "Cannot read properties of undefined (reading 'length')"
+      : undefined,
     enabled: true,
+    transcriptFixture: normalizationFixture ? 'invalid' : undefined,
   })
 
   const targetAttempt = command({ action: 'retry', songId: target, component: retryComponent })
@@ -171,15 +190,21 @@ async function runScenario({ id, point, retryComponent, expectedFailure, readySi
   await delay(50)
   const nextAttempt = command({ action: 'retry', songId: next, component: 'enhanced' })
   const failure = await targetAttempt
-  check(failure instanceof Error && failure.message.includes(`QA injected ${point} failure`),
-    `${id}: injected failure must reach the runtime caller`)
+  check(failure instanceof Error && failure.message.includes(
+    normalizationFixture
+      ? 'no nonempty lyric fragments'
+      : id === 'demucs'
+        ? "Cannot read properties of undefined (reading 'length')"
+        : `QA injected ${point} failure`,
+  ), `${id}: exact failure must reach the runtime caller`)
   await nextAttempt
 
   let status = await command({ action: 'status' })
   let failed = song(status, target)
   const continued = song(status, next)
   check(failed.failure?.component === expectedFailure, `${id}: exact failure component`)
-  check(failed.stage === 'error', `${id}: failed job must be in error state`)
+  check(failed.stage === 'partial',
+    `${id}: failed job with playable outputs must expose terminal partial state`)
   check(status.activeJobs.length === 0, `${id}: failed job must release the serial slot`)
   check(continued.versions.enhanced && continued.stage === 'complete',
     `${id}: the next queued job must continue to success`)
@@ -210,6 +235,17 @@ async function runScenario({ id, point, retryComponent, expectedFailure, readySi
   check(retryControl.exists, `${id}: rendered retry targets the exact failed component`)
 
   await stop()
+  if (id === 'demucs') {
+    const libraryPath = path.join(profile, 'library.json')
+    const persisted = JSON.parse(await readFile(libraryPath, 'utf8'))
+    const stale = persisted.find((candidate) => candidate.id === target)
+    stale.deliverables.outcomes.demucs = {
+      ...stale.deliverables.outcomes.demucs,
+      state: 'missing',
+      failure: undefined,
+    }
+    await writeFile(libraryPath, JSON.stringify(persisted, null, 2), 'utf8')
+  }
   await start()
   status = await command({ action: 'status' })
   failed = song(status, target)
@@ -218,12 +254,84 @@ async function runScenario({ id, point, retryComponent, expectedFailure, readySi
     check(failed.versions[sibling], `${id}: ${sibling} remains usable after restart`)
   }
 
-  await command({ action: 'qa-configure', enabled: true })
-  await command({ action: 'retry', songId: target, component: expectedFailure }, 180_000)
+  await command({
+    action: 'qa-configure',
+    enabled: true,
+    transcriptFixture: normalizationFixture ? 'corrected' : undefined,
+  })
+  if (id === 'demucs') {
+    await command({
+      action: 'ui',
+      uiAction: 'click',
+      selector: `[data-testid="song-row"][data-song-id="${target}"]`,
+    })
+    const beforeRetry = await command({
+      action: 'ui',
+      uiAction: 'snapshot',
+      selector: '[data-testid="retry-demucs"]',
+    })
+    check(beforeRetry.disabled === false && beforeRetry.text === 'Try again',
+      `${id}: installed persisted shape renders an enabled Try again action`)
+    await command({
+      action: 'ui',
+      uiAction: 'click',
+      selector: '[data-testid="retry-demucs"]',
+    })
+    await command({
+      action: 'ui',
+      uiAction: 'click',
+      selector: '[data-testid="retry-demucs"]',
+    }).catch(() => undefined)
+    const queued = await waitFor(async () => {
+      const current = await command({ action: 'status' })
+      const targetSong = song(current, target)
+      return current.activeJobs.length === 1
+        && ['queued', 'preparing', 'separating', 'enhancing', 'transcribing'].includes(targetSong.stage)
+        ? current
+        : undefined
+    }, `${id} rendered retry queue`)
+    check(queued.activeJobs.length === 1,
+      `${id}: duplicate rendered clicks coalesce into one queued/active job`)
+    const retryControl = await command({
+      action: 'ui',
+      uiAction: 'snapshot',
+      selector: '[data-testid="retry-demucs"]',
+    }).catch(() => undefined)
+    check(!retryControl || retryControl.disabled === true,
+      `${id}: retry action disables or disappears immediately after queueing`)
+    await waitFor(async () => {
+      const current = await command({ action: 'status' })
+      return song(current, target)?.stage === 'complete' ? current : undefined
+    }, `${id} corrected rendered retry completion`, 180_000)
+  } else {
+    await command({ action: 'retry', songId: target, component: expectedFailure }, 180_000)
+  }
   status = await command({ action: 'status' })
   const recovered = song(status, target)
   check(!recovered.failure, `${id}: failure removal permits recovery`)
   check(recovered.stage === 'complete', `${id}: targeted retry eventually completes`)
+  if (normalizationFixture) {
+    await command({ action: 'qa-configure', enabled: true, transcriptFixture: 'fallback' })
+    await command({ action: 'retranscribe', songId: target }, 180_000)
+    status = await command({ action: 'status' })
+    const degraded = song(status, target)
+    check(degraded.deliverables.outcomes['whisper-transcription'].diagnostics?.fallbackUsed === true,
+      `${id}: fallback timing diagnostics must persist`)
+    await command({
+      action: 'ui',
+      uiAction: 'click',
+      selector: `[data-testid="song-row"][data-song-id="${target}"]`,
+    })
+    const warning = await waitFor(async () => {
+      const result = await command({
+        action: 'ui',
+        uiAction: 'exists',
+        selector: '[data-testid="lyrics-timing-warning"]',
+      })
+      return result.exists ? result : undefined
+    }, `${id} fallback timing disclosure`)
+    check(warning.exists, `${id}: rendered lyrics UI must disclose fallback timing`)
+  }
   cases.push({
     id,
     point,
@@ -253,6 +361,13 @@ async function main() {
       readySiblings: ['instrumental', 'vocal', 'enhanced'],
     })
     await runScenario({
+      id: 'demucs',
+      point: 'demucs',
+      retryComponent: 'demucs',
+      expectedFailure: 'demucs',
+      readySiblings: ['instrumental', 'vocal', 'enhanced'],
+    })
+    await runScenario({
       id: 'stem',
       point: 'stem-other',
       retryComponent: 'stem-other',
@@ -265,6 +380,7 @@ async function main() {
       retryComponent: 'whisper-transcription',
       expectedFailure: 'whisper-transcription',
       readySiblings: ['instrumental', 'vocal', 'enhanced'],
+      normalizationFixture: true,
     })
     await runScenario({
       id: 'enhanced',
@@ -286,7 +402,7 @@ async function main() {
     await stop()
   }
   const report = {
-    verdict: cases.length === 5 ? 'APPROVE' : 'REJECT',
+    verdict: cases.length === 6 ? 'APPROVE' : 'REJECT',
     generatedAt: new Date().toISOString(),
     assertions,
     cases,
@@ -297,7 +413,7 @@ async function main() {
     },
   }
   await writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2), 'utf8')
-  console.log(`${report.verdict}: ${cases.length}/5 runtime failure scenarios, ${assertions} assertions.`)
+  console.log(`${report.verdict}: ${cases.length}/6 runtime failure scenarios, ${assertions} assertions.`)
 }
 
 main().catch((error) => {

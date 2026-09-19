@@ -13,7 +13,9 @@ export interface AutomationCommand {
   uiAction?: 'click' | 'double-click' | 'set-value' | 'snapshot' | 'exists'
   uiValue?: string
   failurePoint?: string
+  failureMessage?: string
   enabled?: boolean
+  transcriptFixture?: 'invalid' | 'fallback' | 'corrected'
 }
 
 export function isPrivateAutomationEnabled(isPackaged: boolean, argv: string[]) {

@@ -27,3 +27,21 @@ Karaoke Studio needs deterministic four-mode playback, timed lyrics, and FIFO qu
 📌 Team update (2026-09-18T14:19:38.738-07:00): Before future Queue/History or playlist transport test-integrity approval, read and enforce the canonical `.squad/skills/queue-history-validation/SKILL.md` runbook rather than substituting a summarized or weakened process.
 
 📌 Team update (2026-09-18T15:07:36.120-07:00): Before release test-integrity approval, read and enforce `.squad\skills\full-windows-store-release\SKILL.md`. Require fresh package-bound evidence, exact hashes and provenance, and distinguish package approval from blocked or completed Store submission.
+
+### 2026-09-18: Demucs inference boundary reliability
+
+- Reproduced the packaged TypeError exactly: `Object.create(ONNXHTDemucs.prototype)` bypassed JavaScript class-field initialization, leaving `model.sources` undefined at `applySplits`; ONNX Runtime thread caps and CPU provider settings were not causal.
+- Replaced prototype-only construction with initialized model construction plus a local validated inference boundary. Session input/output names, tensor ranks, shapes, and data lengths now fail with explicit Demucs stage/name/shape context before dependency dereferences.
+- Session release is guaranteed on failure, stems remain staged until all four validate, and separation errors retain the retryable `demucs` component while the global FIFO scheduler continues.
+- Added deterministic boundary tests and a real installed-dependency run covering short padding and a 6-second trailing split. All four stems retained exact input frame counts.
+- Fresh build and focused inference, resources, scheduler, resumability, artifact, and real Demucs suites passed.
+
+### 2026-09-18: Private real-library Demucs acceptance
+
+- With explicit authorization, inventoried 16 supported files under the user's Music folder without placing names or content in evidence.
+- Built an isolated unpacked package and verified its packaged `demucs-inference`, runner, and resource-policy JavaScript were byte-identical to the fresh build.
+- Hashed and timestamped every source, converted only into an isolated QA root, and ran all files sequentially through the packaged runner with one active extraction, CPU provider, four-thread half-core cap, and thread-limiting environment variables.
+- Result: 16/16 passed, 64/64 stems were nonempty and FFmpeg-decodable, maximum duration delta was zero, no retries or failures occurred, FIFO terminal continuation held, and every source hash, size, creation timestamp, and modification timestamp was unchanged.
+- Total tested audio duration was 3,241.622 seconds; total elapsed separation time was 1,943.311 seconds. Existing injected-failure runtime evidence separately passed Demucs partial-state persistence, zero partial-stem publication, FIFO continuation, restart, and targeted retry.
+- Follow-up installed-path diagnosis reproduced Steve's error against the currently installed 0.3.2: its packaged runner still uses prototype-only construction and does not contain the validated inference boundary. It exited before publishing stems.
+- A packaged-runtime probe against the isolated fixed build explicitly returned initialized model metadata: four sources (`drums`, `bass`, `other`, `vocals`), two channels, 44.1 kHz, and 7.8-second segments. The installed 0.3.2 remains unfixed until a corrected package is rebuilt and reinstalled (or superseded by a newer fixed version).

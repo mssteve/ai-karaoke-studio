@@ -112,3 +112,21 @@ Karaoke Studio is an Electron/React Windows app using local FFmpeg, Demucs ONNX,
   Evidence: `scripts/qa-artifacts/processing-packaged-0.3.2-neo-revision/revision-verdict.json`.
 
 📌 Team update (2026-09-18T20:04:53.087-07:00): Neo's processing recovery revision and secret-safe 0.3.2 replacement are canonical. The earlier 0.3.2 hashes are rejected; final NSIS/APPX/provenance hashes are `da92c3aa...`, `a6b43fb0...`, and `42a683ae...`, with zero findings across nine package scan scopes.
+
+- 2026-09-18 independent timestamp-normalization revision under reviewer lockout:
+  valid timing is classified and stably sorted independently of malformed text. Malformed
+  fragments are associated with the preceding valid input fragment, then placed in the
+  corresponding chronological boundary. Available gaps are subdivided with an exact
+  40ms floor; excess text is deterministically merged rather than dropped or allowed to
+  fail an otherwise usable transcription.
+- Diagnostics now distinguish stable sorting, actual overlap clamps, invalid-duration
+  expansion, fallback placement, merges, and discards. Zero/30/39ms expansion never
+  increments `repairedOverlapCount`; 40ms is accepted unchanged. Final validation uses
+  only floating-point tolerance, not the former 10ms duration waiver.
+- Screenshot automation now proves a complete, visible, nonempty rendered root across
+  two animation frames before capture and rejects empty NativeImages. Rendered and
+  Queue/History harnesses require this proof instead of blind screenshot retries.
+- Final evidence: clean build; transcription timing 33 checks; processing UI 21,
+  resume 31, resources 24, artifacts 9, scheduler and progress suites; runtime recovery
+  6/6 with 110 assertions; rendered UI 9/9 with two nonzero images; Queue/History 8/8
+  with two nonzero readiness-proven images. No package was produced.

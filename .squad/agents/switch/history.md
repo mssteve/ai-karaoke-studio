@@ -70,3 +70,34 @@ Karaoke Studio targets Windows and later Microsoft Store distribution. Requested
 - Pending publication directive: after selective staging/review and the initial commit, add `https://github.com/mssteve/ai-karaoke-studio.git` as `origin`, ensure `main`, and push with upstream tracking. Store publication remains blocked and is separate from GitHub publication.
 
 📌 Team update (2026-09-18T20:04:53.087-07:00): Switch owns the next Git publication step. Scribe performed no commit, remote addition, or push.
+
+- 2026-09-18 local launch recovery: the supported source-tree launch is now `npm start`. It runs the clean current-source build, verifies renderer, main, preload, transcription, and Demucs outputs, then launches Electron by the explicit compiled main entry. Direct `electron .` launches are unsupported because `package.json` points at generated `dist-electron\main.js`, which is intentionally removed at the start of every build.
+- Repository QA launchers that accept a local Electron entry now validate the executable plus main, preload, transcription, and Demucs outputs before spawning Electron, producing a CLI build instruction instead of Electron's missing-app dialog. No matching repository, Desktop, Start Menu, or pinned Taskbar shortcut was found; `scripts\control.mjs` only connects to an already-running app.
+
+- 2026-09-18 Karaoke Studio 0.3.3 release: bumped package and lockfile versions to
+  0.3.3 and ran the exclusive canonical workflow from one clean build. NSIS then APPX
+  were produced sequentially with publishing disabled. Final SHA-256 values are NSIS
+  `f87878f3593eeb0791833f2d4a4db40e0e72ae81bdcdc4aebfef49f6292e2b25`
+  and APPX
+  `7518bb1743d0804c558f764ea04a8649ebcbe196362067c266f9f31dfa6d0e2b`.
+- Provenance SHA-256 is
+  `a55c902763db38678560ac6215f360894bdc198e99397d2f3074d759e4b6ae72`;
+  it records 77 source/release/QA inputs, aggregate
+  `5092be3c301132ca65a01dfdefb4023f264b9dd13688caaf389b13b31f867007`,
+  and zero missing, extra, or mismatched entries. Nine fail-closed package scan scopes
+  checked 22,952 files and 8,141,006,572 bytes with zero findings.
+- Package-backed validation passed processing suites, rendered UI 9/9, failure/restart
+  6/6 with 110 assertions, lyric timing 33/33, Queue/History 8/8, Demucs 4/4,
+  a representative private Music subset 2/2 with 8/8 stems, and automation isolation
+  3/3. All 16 authorized private source files retained their hashes, sizes, and
+  timestamps; evidence records only an anonymized aggregate.
+- NSIS staging, isolated NSIS install, and APPX payload ASARs are byte-identical and
+  contain initialized validated Demucs inference, lyric normalization/fallback,
+  resumability, the serial scheduler and CPU caps, Enhanced UI, Queue/History, and
+  double-click behavior. The safe `npm start` launcher is provenance-bound and builds
+  and verifies generated outputs before launching.
+- APPX 0.3.3.0 is x64/full-trust and contains all four required Store assets.
+  Package verdict is **APPROVE PACKAGE / BLOCK STORE SUBMISSION**: identity
+  `KaraokeStudio` / publisher `CN=ms` remain placeholders and both artifacts are
+  unsigned. No signing, Store submission, commit, or push occurred. Canonical evidence:
+  `scripts\qa-artifacts\release-0.3.3-switch\release-verdict.json`.

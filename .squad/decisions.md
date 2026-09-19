@@ -2,6 +2,26 @@
 
 ## Active Decisions
 
+### 2026-09-18T21:10:11.253-07:00: Deterministic Whisper timestamp normalization
+
+**By:** Morpheus
+
+**What:** Whisper word fragments are normalized before lyric grouping and validation. Nonempty fragments must have finite, nonnegative, locally orderable timestamps. Exact duplicates and empty fragments are discarded; otherwise valid fragments may be stably sorted by start/end, ends are clamped to known media duration and to the next fragment boundary, and only a bounded 0.04-second minimum duration repair is permitted with a 0.01-second comparison epsilon. Ambiguous simultaneous starts, non-finite/negative/reversed timestamps, fragments wholly outside known media, and intervals without room for the minimum duration fail explicitly. Unicode text is retained. Final lyric lines must be positive-duration, monotonic, and non-overlapping.
+
+Transcription and timed lyrics remain separate resumable deliverables from all audio outputs. A normalization failure is attributed to `whisper-transcription`, leaves valid Original/Instrumental/Vocal/Enhanced modes published and playable, persists a terminal partial song, releases the global FIFO slot, and permits a lyrics-only retry from valid Vocal without rerunning Demucs or mixes.
+
+**Why:** The installed failure was caused by an anomalous word-timestamp fragment spanning `76.76–101.72`; the prior grouper emitted it as a long line before a valid contained fragment at `80.38–85.78`, so validation rejected the later line. Boundary normalization reconstructs usable word timing without allowing one broad fragment to block later lyrics, while explicit rejection prevents invented timing for genuinely corrupt data.
+
+### 2026-09-18T21:20:43.002-07:00: Per-line degraded timing fallback
+
+**By:** Steve, Morpheus
+
+**What:** A malformed nonempty Whisper line no longer fails the whole transcription. Its original Unicode text is retained and its fallback start is the preceding valid end, or zero for the first line. Fallback duration is positive and bounded: use up to two seconds, divide space deterministically across consecutive malformed lines, stop before the next valid boundary, and clamp to known media duration. A 0.04-second minimum remains mandatory. Repaired and fallback lines can never overlap. Empty fragments and exact duplicates remain discardable. Only globally empty output, invalid media duration, or output with insufficient space for any safe positive sequence fails.
+
+Fallback count, overlap repairs, discarded fragments, and explanatory messages persist on both transcription and lyrics outcomes. The Lyrics UI discloses degraded synchronization and offers lyrics retry guidance while all audio modes remain available.
+
+**Why:** Users prefer complete lyric text with explicitly degraded timing over losing the entire lyrics deliverable because one Whisper fragment is malformed. Persisted diagnostics keep the fallback visible rather than silently presenting inferred timing as precise.
+
 ### Whisper timed transcription
 
 **What:** Whisper transcription uses `onnx-community/whisper-small_timestamped`.
@@ -183,8 +203,32 @@ Store submission did not occur. APPX identity `KaraokeStudio` and publisher `CN=
 
 **Why:** The user requested publication only after the initial repository contents and safety boundaries are complete and reviewed. The remote operation remains pending for Switch rather than being mixed into documentation consolidation.
 
+### 2026-09-18T21:39:33.060-07:00: Validated Demucs inference boundary
+
+**By:** Apoc
+
+**What:** The application must construct the installed `ONNXHTDemucs` model with its JavaScript class fields initialized, then attach the CPU-capped ONNX session. Every inference validates session names and both model outputs for presence, rank, compatible shape prefix, and data length before Demucs split code may dereference them. Failures carry safe stage/name/shape context, release the session and single FIFO slot, publish no partial stems, persist as retryable `demucs` separation failures, and preserve already valid Original or listening outputs. Short inputs and trailing splits are padded and trimmed only through the dependency's deterministic path and must preserve exact audio frame duration.
+
+**Why:** The packaged crash was not caused by CPU half-core limits, execution provider, memory pressure, splitting, or path resolution. `Object.create(ONNXHTDemucs.prototype)` skipped the model's own `sources`, `audioChannels`, `samplerate`, and `segment` fields, so `applySplits` read `.length` from undefined. Keeping validation in the application runner avoids an untracked vendor edit while producing actionable errors for future ONNX contract drift.
+
 ## Governance
 
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+### 2026-09-18T21:46:00-07:00: Guarded source-tree launch invariant
+
+**By:** Switch
+
+**What:** The repository-supported local launch command is `npm start`. It must build current source, verify the renderer, Electron main/preload, transcription, and Demucs entries, and only then start Electron using the explicit compiled main path. Direct `electron .` launch is not a supported source-tree entry because the package main is generated output and the clean build intentionally removes it before recompilation. Packaged executable launches remain unchanged.
+
+**Why:** Launching the package root while `dist-electron\main.js` is absent or during a clean-build window produces Electron's “Unable to find Electron app” / missing-module dialog. A guarded local entry makes the dependency explicit without slowing normal packaged launches.
+
+### 2026-09-18T23:17:27.011-07:00: Persisted failure compatibility for targeted retry
+
+**By:** Trinity
+
+**What:** Renderer issue derivation must merge a song's normalized top-level `processingFailure` whenever its exact component is not already represented by a failed deliverable outcome. This includes stale installed records where terminal Demucs failure is retryable at the top level but the separation outcome remains `missing`. The merged issue exposes the exact component's Try again action; current-schema failures remain deduplicated.
+
+**Why:** Installed 0.3.2 persisted two real Demucs `model.sources` TypeErrors as terminal retryable `demucs` failures with no active or queued state, but the renderer discarded them solely because a deliverable store existed. The backend already accepted a separation retry from this state. Compatibility rendering restores recovery across restart while preserving per-component validation and FIFO scheduling.

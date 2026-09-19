@@ -51,7 +51,7 @@ export function formatProcessingElapsed(milliseconds?: number) {
 export function processingItemDetail(item: ProcessingItem) {
   const parts: string[] = []
   if (item.message) parts.push(item.message)
-  if (item.id === 'enhanced' && item.diagnostics) {
+  if (item.id === 'enhanced' && item.diagnostics && 'standard' in item.diagnostics) {
     const output = item.diagnostics.output
     parts.push(
       `EBU R128 · Vocal ${item.diagnostics.vocalGainDb.toFixed(1)} dB`

@@ -42,12 +42,16 @@ import {
   normalizeDeliverableStore,
   reconcileArtifactOutcome,
 } from './processing-domain.js'
+import {
+  normalizeWhisperChunksWithDiagnostics,
+  validateLyricLines,
+} from './transcription-timing.js'
 import type {
   ArtifactFingerprint,
   ComponentFailure,
   DeliverableId,
   DeliverableState,
-  EnhancedProcessingDiagnostics,
+  ProcessingDiagnostics,
   ProcessingComponentId,
   PlaybackAutomationStatus,
   Playlist,
@@ -97,16 +101,18 @@ const privateQaHooksEnabled = privateAutomationEnabled
   && process.argv.includes('--enable-private-qa-hooks')
 type QaFailurePoint =
   | 'source-preparation'
+  | 'demucs'
   | 'stem-other'
   | 'whisper-transcription'
   | 'enhanced'
   | 'save-library'
-let qaFailure: { songId: string; point: QaFailurePoint } | undefined
+let qaFailure: { songId: string; point: QaFailurePoint; message?: string } | undefined
 let qaFixtureAiEnabled = false
+let qaTranscriptFixture: 'invalid' | 'fallback' | 'corrected' | undefined
 
 function triggerQaFailure(songId: string, point: QaFailurePoint) {
   if (!privateQaHooksEnabled || qaFailure?.songId !== songId || qaFailure.point !== point) return
-  throw new Error(`QA injected ${point} failure.`)
+  throw new Error(qaFailure.message ?? `QA injected ${point} failure.`)
 }
 
 protocol.registerSchemesAsPrivileged([{
@@ -763,7 +769,7 @@ function setOutcome(
     artifacts?: ArtifactFingerprint[]
     failure?: ComponentFailure
     blockedBy?: DeliverableId[]
-    diagnostics?: EnhancedProcessingDiagnostics
+    diagnostics?: ProcessingDiagnostics
   } = {},
 ) {
   const current = outcome(song, id)
@@ -851,10 +857,16 @@ async function inspectDeliverables(song: Song) {
     const transcript: unknown = JSON.parse(await readFile(paths.transcript, 'utf8'))
     if (!isTranscriptionResult(transcript)) throw new Error('Invalid transcript')
     const transcriptArtifact = await fingerprint(paths.transcript, 2, false)
-    setOutcome(song, 'whisper-transcription', 'ready', { artifacts: [transcriptArtifact] })
+    setOutcome(song, 'whisper-transcription', 'ready', {
+      artifacts: [transcriptArtifact],
+      diagnostics: transcript.timingDiagnostics,
+    })
     try {
       applyTranscript(song, transcript)
-      setOutcome(song, 'lyrics', 'ready', { artifacts: [transcriptArtifact] })
+      setOutcome(song, 'lyrics', 'ready', {
+        artifacts: [transcriptArtifact],
+        diagnostics: transcript.timingDiagnostics,
+      })
     } catch {
       if (outcome(song, 'lyrics').state !== 'failed') {
         setOutcome(song, 'lyrics', 'missing', { artifacts: [] })
@@ -898,6 +910,20 @@ function isTranscriptionResult(value: unknown): value is TranscriptionResult {
     && (transcript.language === undefined || typeof transcript.language === 'string')
     && (transcript.languageName === undefined || typeof transcript.languageName === 'string')
     && (transcript.languageCode === undefined || typeof transcript.languageCode === 'string')
+    && (transcript.timingDiagnostics === undefined || (
+      typeof transcript.timingDiagnostics.fallbackUsed === 'boolean'
+      && Number.isInteger(transcript.timingDiagnostics.fallbackLineCount)
+      && Number.isInteger(transcript.timingDiagnostics.repairedOverlapCount)
+      && (transcript.timingDiagnostics.invalidDurationExpansionCount === undefined
+        || Number.isInteger(transcript.timingDiagnostics.invalidDurationExpansionCount))
+      && (transcript.timingDiagnostics.sortedFragmentCount === undefined
+        || Number.isInteger(transcript.timingDiagnostics.sortedFragmentCount))
+      && (transcript.timingDiagnostics.mergedFragmentCount === undefined
+        || Number.isInteger(transcript.timingDiagnostics.mergedFragmentCount))
+      && Number.isInteger(transcript.timingDiagnostics.discardedFragmentCount)
+      && Array.isArray(transcript.timingDiagnostics.messages)
+      && transcript.timingDiagnostics.messages.every((message) => typeof message === 'string')
+    ))
     && Array.isArray(transcript.lines)
     && transcript.lines.every((line) => (
       line
@@ -905,8 +931,16 @@ function isTranscriptionResult(value: unknown): value is TranscriptionResult {
       && Number.isFinite(line.start)
       && Number.isFinite(line.end)
       && line.start >= 0
-      && line.end >= line.start
+      && line.end > line.start
     ))
+    && (() => {
+      try {
+        validateLyricLines(transcript.lines)
+        return true
+      } catch {
+        return false
+      }
+    })()
 }
 
 async function findFile(root: string, fileName: string): Promise<string | undefined> {
@@ -958,6 +992,7 @@ interface TranscriptionProgressEvent {
   duration?: number
   chunks?: number
   lines?: number
+  fallbackLines?: number
   file?: string
 }
 
@@ -1337,7 +1372,7 @@ async function executeResumableProcessing(
     id: DeliverableId,
     artifacts: ArtifactFingerprint[],
     message: string,
-    diagnostics?: EnhancedProcessingDiagnostics,
+    diagnostics?: ProcessingDiagnostics,
   ) => {
     setOutcome(song, id, 'ready', { artifacts, diagnostics })
     const completed = tracker.update(id as ProcessingItemId, 'complete', { message, diagnostics })
@@ -1387,6 +1422,7 @@ async function executeResumableProcessing(
       }
       if (id === 'demucs') {
         activate(id, 'Loading the local Demucs model')
+        triggerQaFailure(song.id, 'demucs')
         if (qaFailure?.songId === song.id && qaFailure.point === 'stem-other') {
           current = 'stem-other'
           triggerQaFailure(song.id, 'stem-other')
@@ -1571,12 +1607,24 @@ async function executeResumableProcessing(
           reportTranscriptionProgress(tracker, { phase: 'model', status: 'ready' })
           reportTranscriptionProgress(tracker, { phase: 'transcription', status: 'running' })
           const temporaryTranscript = `${paths.transcript}.${process.pid}.new`
+          const fixtureChunks = qaTranscriptFixture === 'invalid'
+            ? []
+            : qaTranscriptFixture === 'fallback'
+              ? [{ text: 'fallback lyric', timestamp: [-1, 1] as [number, number] }]
+            : qaTranscriptFixture === 'corrected'
+              ? [
+                  { text: 'QA ', timestamp: [0, 1] as [number, number] },
+                  { text: 'lyric', timestamp: [0.7, 1.5] as [number, number] },
+                ]
+              : [{ text: 'QA lyric', timestamp: [0, 1] as [number, number] }]
+          const fixtureTiming = normalizeWhisperChunksWithDiagnostics(fixtureChunks, 2)
           await writeFile(temporaryTranscript, JSON.stringify({
             text: 'QA lyric',
             languageCode: 'en',
             languageName: 'English',
             languageSource: 'detected',
-            lines: [{ text: 'QA lyric', start: 0, end: 1 }],
+            lines: fixtureTiming.lines,
+            timingDiagnostics: fixtureTiming.diagnostics,
           }), 'utf8')
           await replaceFile(temporaryTranscript, paths.transcript)
         } else {
@@ -1587,7 +1635,16 @@ async function executeResumableProcessing(
             () => applyProgress(tracker.heartbeat()),
           )
         }
-        await ready(id, [await fingerprint(paths.transcript, 2, false)], 'Whisper transcription is validated')
+        const transcript: TranscriptionResult = JSON.parse(await readFile(paths.transcript, 'utf8'))
+        const timingMessage = transcript.timingDiagnostics?.fallbackUsed
+          ? `Whisper transcription is usable with fallback timing on ${transcript.timingDiagnostics.fallbackLineCount} line(s)`
+          : 'Whisper transcription is validated'
+        await ready(
+          id,
+          [await fingerprint(paths.transcript, 2, false)],
+          timingMessage,
+          transcript.timingDiagnostics,
+        )
         continue
       }
       if (id === 'lyrics') {
@@ -1596,7 +1653,8 @@ async function executeResumableProcessing(
         if (!isTranscriptionResult(transcript)) throw new Error('Local Whisper AI produced invalid timed lyrics.')
         applyTranscript(song, transcript)
         await ready(id, [await fingerprint(paths.transcript, 2, false)],
-          `${transcript.lines.length} timed lyric lines are committed`)
+          `${transcript.lines.length} timed lyric lines are committed`,
+          transcript.timingDiagnostics)
       }
     }
 
@@ -1657,6 +1715,10 @@ async function executeResumableProcessing(
     }
     song.processingFailure = failure
     const failed = tracker.fail(current as ProcessingItemId, message)
+    if (['original', 'instrumental', 'vocal', 'enhanced']
+      .some((id) => outcome(song, id as DeliverableId).state === 'ready')) {
+      failed.stage = 'partial'
+    }
     if (current.startsWith('stem-') && failed.details) {
       const demucs = failed.details.items.find((item) => item.id === 'demucs')
       if (demucs?.status === 'active' || demucs?.status === 'indeterminate') {
@@ -2078,15 +2140,29 @@ async function handleAutomation(command: AutomationCommand) {
       } else {
         if (!command.songId || ![
           'source-preparation',
+          'demucs',
           'stem-other',
           'whisper-transcription',
           'enhanced',
           'save-library',
         ].includes(command.failurePoint)) throw new Error('A valid QA failure point and song are required.')
-        qaFailure = { songId: command.songId, point: command.failurePoint as QaFailurePoint }
+        qaFailure = {
+          songId: command.songId,
+          point: command.failurePoint as QaFailurePoint,
+          message: typeof command.failureMessage === 'string' ? command.failureMessage : undefined,
+        }
       }
       qaFixtureAiEnabled = command.enabled === true
-      return { failure: qaFailure, fixtureAi: qaFixtureAiEnabled }
+      qaTranscriptFixture = command.transcriptFixture === 'invalid'
+        || command.transcriptFixture === 'fallback'
+        || command.transcriptFixture === 'corrected'
+        ? command.transcriptFixture
+        : undefined
+      return {
+        failure: qaFailure,
+        fixtureAi: qaFixtureAiEnabled,
+        transcriptFixture: qaTranscriptFixture,
+      }
     case 'process':
       if (!command.songId) throw new Error('A song ID is required.')
       return processSong(command.songId)
@@ -2109,11 +2185,45 @@ async function handleAutomation(command: AutomationCommand) {
       return automateRenderedUi(command)
     case 'screenshot': {
       if (!mainWindow) throw new Error('The desktop window is not available.')
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.showInactive()
+      const renderedState = await mainWindow.webContents.executeJavaScript(`new Promise((resolve) => {
+        const finish = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+          const body = document.body
+          const root = document.getElementById('root')
+          resolve({
+            readyState: document.readyState,
+            bodyWidth: body?.scrollWidth ?? 0,
+            bodyHeight: body?.scrollHeight ?? 0,
+            rootChildren: root?.childElementCount ?? 0,
+            visible: document.visibilityState === 'visible',
+          })
+        }))
+        if (document.readyState === 'complete') finish()
+        else window.addEventListener('load', finish, { once: true })
+      })`, true) as {
+        readyState: string
+        bodyWidth: number
+        bodyHeight: number
+        rootChildren: number
+        visible: boolean
+      }
+      if (renderedState.readyState !== 'complete'
+        || renderedState.bodyWidth <= 0
+        || renderedState.bodyHeight <= 0
+        || renderedState.rootChildren <= 0
+        || !renderedState.visible) {
+        throw new Error(`Rendered UI was not capture-ready: ${JSON.stringify(renderedState)}`)
+      }
       const screenshot = await mainWindow.webContents.capturePage()
+      const png = screenshot.toPNG()
+      if (screenshot.isEmpty() || png.byteLength === 0) {
+        throw new Error(`Rendered UI capture was empty after readiness proof: ${JSON.stringify(renderedState)}`)
+      }
       const outputPath = path.join(getDiagnosticsPath(), `screenshot-${Date.now()}.png`)
       await mkdir(getDiagnosticsPath(), { recursive: true })
-      await writeFile(outputPath, screenshot.toPNG())
-      return { path: outputPath, size: screenshot.getSize() }
+      await writeFile(outputPath, png)
+      return { path: outputPath, size: screenshot.getSize(), bytes: png.byteLength, renderedState }
     }
     case 'diagnostics':
       return {

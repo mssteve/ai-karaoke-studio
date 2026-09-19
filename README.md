@@ -24,8 +24,12 @@ For local development and support, the running app exposes a Windows named pipeâ
 
 ```powershell
 npm install
-npm run dev
+npm start
 ```
+
+`npm start` rebuilds the current renderer and Electron sources, verifies the required
+local runtime entries, and then launches Electron. Use `npm run dev` only for the
+renderer and Electron compiler watch processes.
 
 ## Windows installer
 

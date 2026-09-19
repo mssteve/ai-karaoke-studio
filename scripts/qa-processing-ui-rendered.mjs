@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sendCommand } from './control.mjs'
+import { verifyLocalElectronEntry } from './local-electron-entry.mjs'
 
 const [appArg, entryArg, profileArg, outputArg] = process.argv.slice(2)
 if (!appArg || !entryArg || !profileArg || !outputArg) {
@@ -47,6 +48,10 @@ const snapshot = async (selector) => {
 }
 async function capture(name) {
   const shot = await sendCommand({ action: 'screenshot' })
+  assert.equal(shot.renderedState?.readyState, 'complete')
+  assert.equal(shot.renderedState?.visible, true)
+  assert.ok(shot.renderedState?.rootChildren > 0)
+  assert.ok(shot.bytes > 10_000)
   const target = path.join(output, `${name}.png`)
   await copyFile(shot.path, target)
   const file = await stat(target)
@@ -66,6 +71,7 @@ async function stop() {
 
 await mkdir(output, { recursive: true })
 try {
+  await verifyLocalElectronEntry(executable, entry)
   child = spawn(executable, [entry, `--user-data-dir=${profile}`, '--enable-private-automation'], {
     cwd: path.dirname(entry),
     stdio: 'ignore',
@@ -106,6 +112,13 @@ try {
     && retryEnhanced.text === 'Try again',
   `${unavailableReason.text}; action="${retryEnhanced.text}".`)
   const enhancedEvidence = await capture('enhanced-only-failure')
+
+  await ui('click', '[data-testid="song-row"][data-song-id="installed-demucs-failure"]')
+  await waitFor(async () => (await sendCommand({ action: 'status' })).playback?.songId === 'installed-demucs-failure',
+    'installed Demucs failure selection')
+  const demucsRetry = await snapshot('[data-testid="retry-demucs"]')
+  record('installed-demucs-retry-enabled', demucsRetry.text === 'Try again' && !demucsRetry.disabled,
+    `Installed-shape Demucs action="${demucsRetry.text}", disabled=${demucsRetry.disabled}.`)
 
   await ui('click', '[data-testid="playback-toggle"]')
   await waitFor(async () => (await sendCommand({ action: 'status' })).playback?.status === 'playing',

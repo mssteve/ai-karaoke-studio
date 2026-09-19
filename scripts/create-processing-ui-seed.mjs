@@ -115,9 +115,46 @@ async function createSong(id, title, failedComponent) {
   }
 }
 
+async function createInstalledDemucsFailure() {
+  const outcomes = baseOutcomes()
+  const failed = failure('demucs', "Cannot read properties of undefined (reading 'length')")
+  return {
+    id: 'installed-demucs-failure',
+    title: 'Installed Demucs Failure Fixture',
+    artist: 'QA Fixture',
+    sourcePath: fixture,
+    sourceUrl: '',
+    format: 'mp3',
+    addedAt: now,
+    lyrics: [],
+    lyricLanguage: {
+      languageCode: 'und',
+      languageName: 'Unknown',
+      languageSource: 'legacy',
+    },
+    languageCode: 'und',
+    languageName: 'Unknown',
+    languageSource: 'legacy',
+    processingStage: 'error',
+    processingProgress: 12,
+    processingMessage: failed.message,
+    processingDetails: {
+      schemaVersion: 1,
+      operation: 'full',
+      activeItem: 'demucs',
+      startedAt: now,
+      updatedAt: now,
+      items: [{ id: 'demucs', label: 'Stem separation', status: 'error', error: failed.message }],
+    },
+    deliverables: { schemaVersion: 1, outcomes },
+    processingFailure: failed,
+  }
+}
+
 const songs = [
   await createSong('lyrics-failure', 'Lyrics Failure Fixture', 'lyrics'),
   await createSong('enhanced-failure', 'Enhanced Failure Fixture', 'enhanced'),
+  await createInstalledDemucsFailure(),
 ]
 await writeFile(path.join(profile, 'library.json'), `${JSON.stringify(songs, null, 2)}\n`)
 await writeFile(path.join(profile, 'fixture-library.json'), `${JSON.stringify(songs, null, 2)}\n`)
@@ -128,5 +165,5 @@ await writeFile(path.join(profile, 'playlists.json'), `${JSON.stringify({
 }, null, 2)}\n`)
 
 const saved = JSON.parse(await readFile(path.join(profile, 'library.json'), 'utf8'))
-if (saved.length !== 2) throw new Error('Processing UI seed was not written.')
+if (saved.length !== 3) throw new Error('Processing UI seed was not written.')
 console.log(`Created processing UI profile with ${saved.length} songs at ${profile}.`)

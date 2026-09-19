@@ -45,6 +45,14 @@ equal(
   'a bad stem must rerun separation and affected descendants',
 )
 equal(
+  computeRetryPlan('demucs', allReady),
+  [
+    'demucs', 'stem-vocals', 'stem-drums', 'stem-bass', 'stem-other',
+    'instrumental', 'vocal', 'enhanced', 'whisper-transcription', 'lyrics',
+  ],
+  'a separation-only retry must rebuild every derived stem and dependent output',
+)
+equal(
   computeRetryPlan('source-preparation', allReady),
   [
     'source-preparation', 'demucs', 'stem-vocals', 'stem-drums', 'stem-bass',

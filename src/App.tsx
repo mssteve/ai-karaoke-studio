@@ -45,6 +45,7 @@ import {
   componentLabels,
   deliverableIssues,
   enhancedSummary,
+  lyricsTimingSummary,
   modeAvailability,
   retryActivity,
   retryKey,
@@ -1080,6 +1081,11 @@ function App() {
                   <span data-testid="lyrics-language"><Clock3 size={13} />
                     {selected.lyricLanguage.languageName} ({selected.lyricLanguage.languageCode}) · {selected.lyrics.length ? 'Timed' : 'Waiting'}
                   </span></div>
+                {lyricsTimingSummary(selected) && (
+                  <p className="lyrics-timing-warning" data-testid="lyrics-timing-warning">
+                    {lyricsTimingSummary(selected)}
+                  </p>
+                )}
                 <div className="lyrics-scroll">
                   {selected.lyrics.length ? selected.lyrics.map((line, index) => (
                     <button key={`${line.start}-${line.text}`} ref={(element) => { lyricRefs.current[index] = element }}

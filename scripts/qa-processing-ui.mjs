@@ -138,4 +138,34 @@ song.processingDetails = {
 }
 equal(retryActivity(song, 'enhanced', false), 'Queued #2', 'targeted retry shows FIFO position')
 
+const installedDemucsFailure = structuredClone(song)
+installedDemucsFailure.processingStage = 'error'
+installedDemucsFailure.processingDetails = {
+  schemaVersion: 1,
+  operation: 'full',
+  activeItem: 'demucs',
+  startedAt: '2026-09-18T00:00:04.000Z',
+  updatedAt: '2026-09-18T00:00:05.000Z',
+  items: [{ id: 'demucs', label: 'Stem separation', status: 'error' }],
+}
+installedDemucsFailure.processingFailure = {
+  component: 'demucs',
+  code: 'execution-failed',
+  message: "Cannot read properties of undefined (reading 'length')",
+  retryable: true,
+  occurredAt: '2026-09-18T00:00:05.000Z',
+}
+installedDemucsFailure.deliverables.outcomes.demucs = {
+  ...installedDemucsFailure.deliverables.outcomes.demucs,
+  state: 'missing',
+  failure: undefined,
+}
+const installedIssues = deliverableIssues(installedDemucsFailure)
+equal(installedIssues[0]?.component, 'demucs',
+  'installed top-level Demucs failure is not hidden by a stale missing outcome')
+equal(installedIssues[0]?.retryable, true,
+  'installed top-level Demucs failure keeps its retryable action')
+equal(retryActivity(installedDemucsFailure, 'demucs', false), undefined,
+  'terminal installed Demucs failure does not remain falsely active')
+
 console.log(`PASS processing UI: ${checks} deterministic checks.`)

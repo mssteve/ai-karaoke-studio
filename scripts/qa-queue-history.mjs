@@ -3,6 +3,7 @@ import { copyFile, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/prom
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sendCommand } from './control.mjs'
+import { verifyLocalElectronEntry } from './local-electron-entry.mjs'
 
 const [appArg, entryArg, profileArg, outputArg] = process.argv.slice(2)
 if (!appArg || !entryArg || !profileArg || !outputArg) {
@@ -50,20 +51,21 @@ const songIds = (value, id) => playlist(value, id)?.entries.map((item) => item.s
 
 async function screenshot(name) {
   const destination = path.join(output, `${name}.png`)
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    const result = await sendCommand({ action: 'screenshot' })
-    await copyFile(result.path, destination)
-    const bytes = (await stat(destination)).size
-    if (bytes) {
-      screenshots.push({ name, path: destination, bytes })
-      return
-    }
-    await delay(250)
+  const result = await sendCommand({ action: 'screenshot' })
+  if (result.renderedState?.readyState !== 'complete'
+    || result.renderedState?.visible !== true
+    || result.renderedState?.rootChildren <= 0
+    || result.bytes <= 0) {
+    throw new Error(`Screenshot ${name} lacked rendered readiness proof.`)
   }
-  throw new Error(`Screenshot ${name} was empty after 5 attempts`)
+  await copyFile(result.path, destination)
+  const bytes = (await stat(destination)).size
+  if (bytes <= 0) throw new Error(`Screenshot ${name} was empty after rendered readiness proof.`)
+  screenshots.push({ name, path: destination, bytes, renderedState: result.renderedState })
 }
 
 async function start() {
+  await verifyLocalElectronEntry(executable, entry)
   child = spawn(executable, [entry, `--user-data-dir=${profile}`, '--enable-private-automation'], {
     cwd: path.dirname(executable),
     stdio: 'ignore',
