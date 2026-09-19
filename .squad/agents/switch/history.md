@@ -1,0 +1,72 @@
+# Switch History
+
+## Project Context
+
+Karaoke Studio targets Windows and later Microsoft Store distribution. Requested by Steve.
+
+## Learnings
+
+- 2026-09-17 packaging audit: the current TypeScript build emits `dist-electron\preload.cjs`, matching the BrowserWindow preload path, but the existing 0.2.0 APPX contains `dist-electron\preload.js` instead. Existing release artifacts therefore predate the preload fix and must not ship.
+- The existing APPX manifest still uses placeholder identity `KaraokeStudio` and publisher `CN=ms`; Partner Center identity values and signing are required before Store submission.
+- The existing NSIS EXE, APPX, and unpacked executable are unsigned. No QA approval report is present under `scripts\qa-artifacts`.
+- The APPX includes Windows FFmpeg and the Demucs model, but broad native-module unpack rules also include unused Linux, macOS, ARM64, and duplicate ONNX Runtime payloads. Whisper is downloaded on first transcription rather than bundled for first-run offline use.
+- Runtime automation uses the Windows named pipe `\\.\pipe\karaoke-studio-control`; no TCP/HTTP listening port is configured. The renderer and media are served internally through the privileged `karaoke://` Electron protocol.
+- 2026-09-17 Sprint 3 revision: added the exclusive `npm run release` workflow. It removes stale outputs, takes a process lock, records source provenance, builds once for NSIS and APPX, disables publishing, verifies current main/preload/automation hashes inside staging and APPX ASARs, and emits SHA-256 hashes.
+- Packaged private automation is disabled by default and enabled only by `--enable-private-automation`. Final packaged QA proved the default pipe is absent, the flagged pipe answers, and neither process tree owns a listening TCP port.
+- Packaged QA now drives the rendered Add Songs button and the real Windows common file dialog using Windows UI Automation plus SendKeys. It imports both MP3 and MP4 fixtures without the removed fixture-dialog bypass.
+- The final full packaged run passed 22/22 gates, including Demucs/Whisper processing, three timed lyric lines, and distinct enhanced, vocal, instrumental, and original controls.
+- Final isolated artifacts are provenance-locked in `release/provenance.json`; `release/SHA256SUMS.txt` records EXE hash `7ed042ab544c26b54409d52be7f6e0bc64fe4d68ec81c2c54a9e2af7dc093943` and APPX hash `1223aec17eab496ad8605d9326e911ec8206b78ceb210f2ebea56b3908388410`.
+
+📌 Team update (2026-09-17T17:23:31.480-07:00): The fresh isolated NSIS/APPX artifacts and all packaged release gates received final approval — decided by Neo, Trinity, Morpheus, Tank, and Switch.
+
+- 2026-09-17 seamless-mode release: the official workflow now records the approved 5/5 source report, hashes every current renderer output plus `preload.cjs`, builds NSIS then APPX sequentially from one build, and verifies staging/APPX ASAR and APPX ZIP readability.
+- Final packaged focused QA passed 5/5 with explicit private automation and zero listening TCP ports. Evidence: `scripts/qa-artifacts/mode-switching-packaged-approved-2026-09-17/report.json`.
+- 2026-09-18 fourth-author near-end playback revision: the hang came from treating an unexpected media `pause` while play intent remained active as a no-op, combined with event handlers reading a stale rendered status. A near-end pause could therefore remain logically “playing” forever, while a later pause event could also overwrite a completed `ended` transition.
+- Playback status now has an authoritative ref updated with React state, unexpected non-terminal pauses recover playback, terminal settlement atomically clears pending seek/mute/play intent, and the watchdog settles only at the actual end or a tightly bounded stalled tail instead of the previous three-second window. Mode targets are clamped back into shared logical state when switching to shorter tracks.
+- Clean build passed. The unchanged exact mode suite passed 5/5 in three stress runs and a final canonical run at `scripts/qa-artifacts/mode-switching-switch-fourth-author-final-2026-09-18/report.json`; playlist/language passed 16/16 at `scripts/qa-artifacts/playlist-language-switch-fourth-author-final-2026-09-18/report.json`, including FIFO exactly-once autoplay, final ended state, 0:00 reset, lyrics, and zero TCP listeners.
+
+- The official seamless-mode artifacts were rebuilt sequentially and passed packaged QA 5/5. Verified SHA-256: NSIS `edecc067b9122c6898d8c961b2a0f862402ea7c777c103e4ae6f92bfc7465b4b`; APPX `eea9ad3cc8340e1ff07dbf55ef2daa1d0e7a9aff3842366dc78a7fe5cdd99280`.
+
+📌 Team update (2026-09-17T21:23:57.955-07:00): Switch completed the clean sequential NSIS/APPX rebuild; the packaged focused suite approved all 5 gates with zero TCP listeners.
+
+- 2026-09-17 installed-app incident: unpacked `demucs/dist/mp3-encoder.js` could not resolve `mediabunny` because Demucs was outside ASAR while `mediabunny` and `@mediabunny/mp3-encoder` remained inside it.
+- Explicitly unpacked both dependencies and rebuilt the official NSIS and APPX. Final SHA-256: NSIS `9929d547d0b471379061c62ae2e1275311c0ea9927efb6dbf20e029332e89145`; APPX `5cc93034536fc622d9a9888cee7fbae182a5f9be72ba9fcbd9a7bc9c93b8a675`.
+
+📌 Team update (2026-09-17T22:55:03.579-07:00): The replacement Windows release fixes installed Demucs module resolution by unpacking its media encoder dependencies; installed-path and real-song QA approved the new artifacts.
+
+- 2026-09-18 Karaoke Studio 0.3.0 packaging: version and lockfile were synchronized, and the official exclusive workflow built NSIS then APPX from one clean source snapshot. Provenance verified current renderer/main/preload/automation hashes, readable staging and APPX ASARs, APPX ZIP readability, unchanged release inputs, and packaged Demucs from NSIS and APPX payloads.
+- The NSIS package was installed outside project ancestors at `%LOCALAPPDATA%\KaraokeStudio-QA-0.3.0`. Installed Demucs produced 4/4 valid stems; canonical playlist/language QA passed 16/16 with zero renderer errors and zero TCP listeners; native common-dialog import, default-disabled automation, explicit-flag automation, full AI processing, timed lyrics, and all four controls passed before the harness's later cleanup step failed.
+- Final 0.3.0 release approval is withheld. The strict installed mode suite repeatedly timed out waiting for terminal `ended` under its normal runner, although an instrumented observation run captured 5/5 and a true `ended` event. A forced legacy-language retranscription reported detected Chinese in memory but left `library.json` persisted as `und`/`Unknown`, causing that focused persistence run to fail 15/16.
+- Candidate artifact SHA-256 values: NSIS `b382db3978a19c1cb2562010ff72ae995de1b6c2d92b7ce0d3a9b0a14b92d89a`; APPX `579e33fdd0c0e83d66e4c8ed44b9e6ca998a7a53d42cee2637202341112a9382`.
+
+- 2026-09-18 final 0.3.0 approval: Apoc corrected the actual-duration terminal acceptance and retranscription CLI songId/timeout defects; Tank then approved refreshed provenance with all 47 entries and zero mismatches. The existing product binaries remained byte-correct and required no rebuild.
+- Approved hashes: NSIS `b382db3978a19c1cb2562010ff72ae995de1b6c2d92b7ce0d3a9b0a14b92d89a`; APPX `579e33fdd0c0e83d66e4c8ed44b9e6ca998a7a53d42cee2637202341112a9382`; provenance aggregate `8f2455146a918ebb8e0ce0737183777316c05e0f290cf4a63a66fe8efdc8b6b0`.
+
+📌 Team update (2026-09-18T09:32:50.972-07:00): Switch's previously withheld 0.3.0 candidate is now approved after strict runtime and provenance remediation; automation remains default-off and all renderer/TCP checks are clean — decided by Neo, Trinity, Morpheus, Tank, Switch, Cypher, and Apoc.
+
+- 2026-09-18 Queue/History Windows release: bumped the smallest monotonic version from 0.3.0 to 0.3.1 and ran the exclusive `npm run release -- --approval=scripts\qa-artifacts\queue-history-canonical-proof\report.json` workflow. The workflow accepted the canonical 8/8 approval, built NSIS then APPX from one clean build with publishing disabled, and verified installed/staged/extracted Demucs 4/4.
+- Provenance tracks 50 source entries with aggregate SHA-256 `7e49bbc60c68c4c535890d572bce32bcdfd5ce57b1758963a68c557e673d52cf` and zero missing, extra, or mismatched files. Main, preload, automation, and all renderer entries matched across NSIS staging, APPX staging, and the APPX payload. Automation remains disabled by default.
+- Final local artifacts: NSIS `release\Karaoke Studio-Setup-0.3.1.exe`, SHA-256 `f76ed3a9b01c68e4c7a84e69f3ee9d752145d58610a421055fa444b634ad288d`; APPX `release\Karaoke Studio-Setup-0.3.1.appx`, SHA-256 `cbcc91acc5af14d23c6b41d5b862f35042533bdd383f433fe124de5265c32a6b`.
+- APPX version `0.3.1.0`, x64 application entry, ASAR, and all four Store assets passed. Both artifacts are intentionally unsigned. Microsoft Store submission remains blocked because the manifest still has placeholder identity `KaraokeStudio` / publisher `CN=ms`; Partner Center's reserved identity must be supplied and the official workflow rerun before upload.
+- Added and executed the canonical mandatory `.squad\skills\full-windows-store-release\SKILL.md` process. The approved Queue/History report, screenshots, fixture hashes, sizes, timestamps, and the 16,611-file QA-artifact inventory remained unchanged.
+
+📌 Team update (2026-09-18T15:07:36.120-07:00): `.squad\skills\full-windows-store-release\SKILL.md` is mandatory reading before every release. Approved user-facing or shipped-runtime changes automatically route to Switch; completion requires the full NSIS/APPX, provenance, packaged-QA, and reviewer workflow, never build-only validation.
+
+- 2026-09-18 Git initialization: initialized the released baseline on `main`; generated packages, QA evidence, temporary profiles, local AI downloads, secrets, signing keys, caches, and Squad runtime state are excluded while source, lockfiles, build icons, release/QA runners, and canonical Squad records remain visible.
+- 2026-09-18 cleanup audit: safe release cleanup should retain provenance-bound 0.3.1 binaries, current `dist`/`dist-electron`, staging/runtime evidence, canonical approvals, referenced historical evidence, reusable fixtures, and ambiguous successful runs. Exact rejected runs, abandoned probe/debug profiles, empty isolated install roots, builder debug metadata, and unused blockmaps can be removed after recording per-path sizes and confirming their superseding approvals.
+
+- 2026-09-18 exact disposable-profile cleanup: re-inspected and removed only `scripts\qa-artifacts\2026-09-18T00-31-52.127Z`, `scripts\qa-artifacts\2026-09-18T00-34-03.328Z`, and `scripts\qa-artifacts\2026-09-18T00-35-34.301Z`. Each remained a direct non-reparse child of `scripts\qa-artifacts` containing only generated `profile` data; 5,518,228 logical bytes were reclaimed.
+- Reverified the existing 0.3.1 release without rebuilding. NSIS SHA-256 remains `f76ed3a9b01c68e4c7a84e69f3ee9d752145d58610a421055fa444b634ad288d`; APPX remains `cbcc91acc5af14d23c6b41d5b862f35042533bdd383f433fe124de5265c32a6b`; the recorded 50-entry provenance aggregate remains `7e49bbc60c68c4c535890d572bce32bcdfd5ce57b1758963a68c557e673d52cf`. APPX readability and all six provenance-bound packaged build outputs passed, canonical Queue/History approval remains 8/8 with both screenshots intact, and all four Demucs evidence reports remain PASS with 4/4 stems.
+
+- 2026-09-18 processing recovery Windows release: selected the smallest monotonic version, 0.3.2 / APPX 0.3.2.0. The exclusive workflow built NSIS then APPX from one clean build with publishing disabled. APPX validation was corrected to use Windows `System.IO.Compression.ZipFile`, because Store APPX data descriptors are readable by Windows but rejected by `adm-zip`.
+- Final artifacts: NSIS `release\Karaoke Studio-Setup-0.3.2.exe`, SHA-256 `728d8fbbaa286c0bc931aa00923951224bea75fd3c41b8a5213337098912a06c`; APPX `release\Karaoke Studio-Setup-0.3.2.appx`, SHA-256 `ae361e711580542791ee9a0b61feea6ec64b7bddbe918bff66b73e4c17ea83a4`.
+- Provenance covers 68 current source/reusable release and QA files with aggregate SHA-256 `eee23fdd13fc4f32c4839a099c959308742747f21a6f2a17940ce9f3c353185a` and zero missing, extra, or mismatched entries. Installed NSIS and APPX payload ASAR hashes are identical (`5cf9eb23d24d6408e2cdb2c7e75edc64523f8aa4508204bf304f16a1ad3bca64`); all six main/preload/automation/renderer outputs match provenance.
+- Packaged QA passed: seven focused processing suites; rendered processing UI 9/9; runtime failure/restart 5/5 with 90 assertions; Queue/History 8/8; installed Demucs 4/4; default-off automation and the separate QA-hook gate. CPU policy and Demucs/Whisper propagation are packaged, while GPU percentage limiting remains truthfully unsupported.
+- All 11 critical approval reports/screenshots/imported fixture songs retained exact hashes, sizes, and timestamps. Across the pre-release inventory, 14,559 retained files were unchanged. The NSIS upgrade removed 588 files belonging only to the superseded 0.3.1 installed-application copy; no imported source, report, screenshot, or approval document was affected.
+- Package verdict is **APPROVE PACKAGE / BLOCK STORE SUBMISSION**. Both artifacts are unsigned, and APPX identity `KaraokeStudio` / publisher `CN=ms` remain placeholders. No signing credentials were used and no Store submission occurred. Canonical evidence: `scripts\qa-artifacts\processing-packaged-0.3.2-switch\release-verdict.json`.
+- Added the reusable packaged processing failure/restart and dual-gate procedure to `.squad\skills\full-windows-store-release\SKILL.md`.
+
+- 2026-09-18 replacement release handoff: the first 0.3.2 artifacts (`728d8fbb...` / `ae361e71...`) are rejected and superseded by Neo's secret-safe rebuild and Tank's independent approval. Authoritative hashes are NSIS `da92c3aa353e1bafcff25e02775ab52396e8becfdd5f3f1c1b71ad5ffa27e28b`, APPX `a6b43fb07778a9d05c7cfa3501452304d10756b47e29493888456c03a612f491`, and provenance `42a683ae733b4ff87ab466c29506641e42c8eb5b69b2bb9e3a0b346de55a7c45`.
+- Pending publication directive: after selective staging/review and the initial commit, add `https://github.com/mssteve/ai-karaoke-studio.git` as `origin`, ensure `main`, and push with upstream tracking. Store publication remains blocked and is separate from GitHub publication.
+
+📌 Team update (2026-09-18T20:04:53.087-07:00): Switch owns the next Git publication step. Scribe performed no commit, remote addition, or push.

@@ -1,0 +1,120 @@
+{
+  "name": "karaoke-studio",
+  "version": "0.3.2",
+  "description": "Private, local-AI karaoke creation studio for Windows.",
+  "main": "dist-electron/main.js",
+  "author": "Karaoke Studio",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"npm:dev:electron\"",
+    "dev:electron": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
+    "control": "node scripts/control.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "node scripts/clean.mjs && tsc -b && vite build && tsc -p tsconfig.electron.json",
+    "qa:processing-progress": "node scripts/qa-processing-progress.mjs",
+    "qa:processing-ui": "node scripts/qa-processing-ui.mjs",
+    "qa:processing-ui-rendered": "node scripts/qa-processing-ui-rendered.mjs",
+    "qa:processing-scheduler": "node scripts/qa-processing-scheduler.mjs",
+    "qa:processing-resume": "node scripts/qa-processing-resume.mjs",
+    "qa:processing-resources": "node scripts/qa-processing-resources.mjs",
+    "qa:processing-artifacts": "node scripts/qa-processing-artifacts.mjs",
+    "qa:enhancement": "node scripts/qa-enhancement.mjs",
+    "release": "node scripts/release.mjs",
+    "dist": "npm run release",
+    "dist:store": "npm run release",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "1.1.0",
+    "@huggingface/transformers": "3.8.1",
+    "demucs": "1.0.0",
+    "lucide-react": "1.44.0",
+    "onnxruntime-node": "1.23.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "electron": "38.8.6",
+    "electron-builder": "26.15.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.4",
+    "typescript": "7.0.2",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "com.karaokestudio.desktop",
+    "productName": "Karaoke Studio",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**",
+      "node_modules/@mediabunny/mp3-encoder/**",
+      "node_modules/demucs/**",
+      "node_modules/mediabunny/**",
+      "node_modules/onnxruntime-node/**"
+    ],
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/.npmrc",
+      "!**/.yarnrc",
+      "!**/.yarnrc.*",
+      "!**/.pypirc",
+      "!**/.netrc",
+      "!**/.git-credentials",
+      "!**/.docker/config.json",
+      "!**/.aws/**",
+      "!**/.azure/**",
+      "!**/.gnupg/**",
+      "!**/.ssh/**",
+      "!**/.secrets/**",
+      "!**/secrets/**",
+      "!**/credentials*.json",
+      "!**/service-account*.json",
+      "!**/*token*.json",
+      "!**/*.secret",
+      "!**/*.pem",
+      "!**/*.key",
+      "!**/*.pfx",
+      "!**/*.p12",
+      "!**/*.pvk",
+      "!**/*.snk",
+      "!**/*.cer",
+      "!**/*.crt",
+      "!**/*.p7b",
+      "!**/*.jks",
+      "!**/*.keystore",
+      "!**/*~"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "appx": {
+      "applicationId": "KaraokeStudio",
+      "displayName": "Karaoke Studio",
+      "publisherDisplayName": "Karaoke Studio",
+      "identityName": "KaraokeStudio"
+    }
+  }
+}

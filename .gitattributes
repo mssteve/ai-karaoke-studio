@@ -1,0 +1,43 @@
+# Squad: union merge for append-only team state files
+.squad/decisions.md merge=union
+.squad/agents/*/history.md merge=union
+.squad/log/** merge=union
+.squad/orchestration-log/** merge=union
+
+# Normalize source and configuration text while preserving Windows script endings.
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.css text eol=lf
+*.cts text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Keep media, application, archive, and signing artifacts binary.
+*.appx -text
+*.dll -text
+*.exe -text
+*.gif -text
+*.ico -text
+*.jpeg -text
+*.jpg -text
+*.mp3 -text
+*.mp4 -text
+*.msix -text
+*.onnx -text
+*.p12 -text
+*.pem -text
+*.pfx -text
+*.png -text
+*.safetensors -text
+*.wav -text
+*.webp -text
+*.zip -text
