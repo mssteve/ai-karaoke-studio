@@ -62,3 +62,18 @@ Initial setup complete.
   release artifacts or performing a commit/push.
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Karaoke Studio 0.3.3 is package-approved; Store submission remains blocked, the local initial commit is pending, and GitHub push is blocked by noninteractive `mssteve` authentication.
+
+- 2026-09-19 live microphone consolidation: merged three architecture, UX/permission,
+  and independent-review inbox records into one canonical experimental-branch
+  decision. Updated current identity and propagated source-approval boundaries without
+  packaging, committing, pushing, or changing product code.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): The renderer-only live microphone branch is source-approved but unreleased; physical round-trip latency and physical unplug remain manual gaps.
+
+- 2026-09-20 final 0.3.4 consolidation: deduplicated and cleared two superseded
+  fixed-0.35 package inbox records, retained Tank and Switch's canonical adjustable
+  package approval, recorded the final hashes and successful installation, updated
+  current identity, and propagated cross-agent context. No product/release file,
+  commit, push, or running app was touched.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): Karaoke Studio 0.3.4 is installed and package-approved on `feature/live-mic-monitor`; Store submission remains blocked by placeholder identity/publisher and unsigned artifacts. Normal app PID 26988 remains running with Mic OFF and automation disabled.

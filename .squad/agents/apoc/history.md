@@ -47,3 +47,5 @@ Karaoke Studio needs deterministic four-mode playback, timed lyrics, and FIFO qu
 - A packaged-runtime probe against the isolated fixed build explicitly returned initialized model metadata: four sources (`drums`, `bass`, `other`, `vocals`), two channels, 44.1 kHz, and 7.8-second segments. The installed 0.3.2 remains unfixed until a corrected package is rebuilt and reinstalled (or superseded by a newer fixed version).
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Tank approved Apoc's initialized Demucs inference boundary after real Music acceptance at 16/16 files and 64/64 stems. The fix is included in the approved frozen 0.3.3 package; Store submission remains blocked.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): The final installed and package-approved 0.3.4 retained Demucs 4/4 and processed-data preservation. Store submission remains blocked; no commit or push occurred.

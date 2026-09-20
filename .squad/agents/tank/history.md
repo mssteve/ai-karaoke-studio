@@ -190,3 +190,153 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   are unsigned. No rebuild, signing, submission, commit, or push occurred.
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Tank's lyric, Demucs, retry, and final frozen 0.3.3 approvals are canonical. Authoritative NSIS/APPX/provenance hashes are `04d9c061...`, `fe78e626...`, and `fecd4474...`; Store remains blocked and no commit/push occurred.
+
+- 2026-09-19 live microphone monitor review: **APPROVE source validation with explicit
+  physical-latency and hardware-unplug gaps**. Fresh build, microphone 51/51, rendered
+  CDP evidence, and Queue/History 8/8 passed. The actual default capture/output path was
+  exercised in an isolated profile starting muted, then at 4% player volume
+  (approximately 0.01 monitor gain): 48 kHz context/capture, two applied input channels,
+  DSP off, 10 ms base latency, 32 ms output latency, and a 42 ms output-only estimate.
+  Playback, pause, and Vocal mode switching retained one monitor graph. All 25 toggle
+  cycles reached one live track/context on and zero on off; pagehide, reload, and close
+  also left zero live resources, with zero renderer errors. Permission denial and track
+  end were simulated and recovered/released correctly. No Bluetooth or headphone-named
+  endpoint was detected, so safe speaker monitoring and physical round-trip latency are
+  not claimed. Evidence:
+  `scripts/qa-artifacts/microphone-real-device-tank-2026-09-19/report.json`.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): Tank's live microphone verdict is canonical source approval only: physical wired round-trip and physical unplug remain manual, Bluetooth is excluded, and no safe speaker-monitoring or release claim is permitted.
+
+- 2026-09-20 independent 0.3.4 package review: **APPROVE PACKAGE / BLOCK STORE
+  SUBMISSION**. Recomputed NSIS
+  `e9f4775c3c4f5cbb99012ac21714f1b11abc0636f18cda6ec4c326f14c61368f`
+  (495,696,916 bytes), APPX
+  `c61596c29a0306bb83b65311dcfb6682a28ee9e8b82826b9292ffc1252778a37`
+  (665,535,423 bytes), provenance
+  `aace0887a8b70aed429a80d1f4c0f3e51a6ee2acc9ec453c4037c34be9bd0b5f`,
+  and Switch evidence
+  `4f40b3275cd7141ac70e09828dab7392aeeb4d1bb3adb579bf77abc510add36a`.
+  The current 82-file release source set independently reproduced aggregate
+  `8495bf0c21d4dbb0aff02f2d8a2620a0227e0a2a3715fc8aaa468cd645b64b81`
+  with zero missing, extra, or mismatched entries.
+- Fresh nine-scope fail-closed scanning checked 24,716 entries, 22,958 files,
+  21,049 text candidates, and 8,141,095,372 bytes with zero findings. NSIS,
+  staging, and APPX ASARs were identical; no audio media was embedded. Packaged
+  main/preload/automation/renderer hashes matched provenance, and inspection
+  confirmed direct interactive Web Audio monitoring, strict trusted-origin
+  audio-only permissions, required AI dependencies, APPX 0.3.4.0 x64
+  `runFullTrust` plus `microphone`, all four Store assets, and default-off
+  automation.
+- Independent package-backed reruns passed microphone 51/51, real default-device
+  low-gain toggling 25/25 with zero surviving candidate processes, rendered
+  microphone UI, processing unit suites, runtime recovery 6/6/113, rendered
+  processing 10/10 with two reviewed screenshots, timing 33/33, Queue/History
+  8/8 with two reviewed screenshots, Demucs 4/4, retry binding, and automation
+  isolation 2/2. Prior canonical device telemetry remains an output estimate
+  only: 48 kHz context/capture, two channels, DSP off, 10 ms base plus 32 ms
+  output latency (42 ms displayed estimate). Physical round trip and physical
+  unplug remain unmeasured; wired headphones are required and Bluetooth is
+  excluded.
+- Store submission remains blocked by placeholder identity `KaraokeStudio` /
+  publisher `CN=ms` and unsigned NSIS/APPX artifacts. No rebuild, signing,
+  submission, commit, merge, or push occurred.
+
+- 2026-09-20 microphone audibility escalation: the 0.3.4 package approval above is
+  **revoked; REJECT PACKAGE**. The shipped renderer proves only an active track/context
+  and directly computes monitor gain as `playerVolume * 0.25`. At player volume zero
+  the destination receives zero signal while the UI can still report Mic live; the
+  prior 4% package exercise used gain 0.01 (about -40 dB) and therefore did not prove
+  audible monitoring. The package contains no analyser telemetry, sink identity, or
+  browser mute/audibility checks.
+- Added a fail-closed real signal-path gate requiring confirmed wired headphones,
+  above-threshold input RMS/peak, proportional nonzero post-gain RMS/peak, running
+  context, live/unmuted track, system-default sink, unmuted/audible web contents, and
+  gain independent of song volume. The source revision uses dedicated 0.35 gain and
+  transient analyser telemetry only; build and 74 deterministic checks pass. Real
+  output testing was not run because wired headphones were not physically confirmed,
+  and the gate correctly refused to start. Replacement source remains HOLD pending
+  that safe real-device run, full regressions, and a fresh monotonic package.
+
+- 2026-09-20 source follow-up: the safe real-device signal gate passed. The default
+  microphone produced input peak `0.016068` and proportional post-gain peak `0.005624`
+  at exact ratio `0.35`; context was running, the 48 kHz track was live/unmuted,
+  default output was selected, and Electron reported unmuted/currently-audible output.
+  Build, microphone 74/74, rendered validation, and Queue/History 8/8 passed.
+  Replacement source is approved. Existing 0.3.4 packages and provenance remain
+  invalid, and no package/release action is authorized.
+
+- 2026-09-20 corrected 0.3.4 replacement review: **APPROVE PACKAGE / BLOCK STORE
+  SUBMISSION**. Independently recomputed NSIS
+  `78c5ded12345deae386d60ce9a65133887aa2ca2e608d2d90e6423ad6537e31c`,
+  APPX `bf0b4b728487ab64d843690a1375e7ddb490840c2f4684ccfe128f894ccafd80`,
+  ASAR `7965dd13722f1536be38d3a2a6e9e66eb5832e4d6139a695764293b3dc7240c0`,
+  and provenance
+  `89d386cea9259671afe33e881db361c578924a82cb33c4fd30f4d76b518d0f76`.
+  Source provenance passed 83/83 with aggregate
+  `39510f9f2cf10349b079eb0824d571e67667ddff1575795a777c4ca7c5985515`
+  and zero differences; fresh package scanning found zero secret findings.
+- Fresh package-backed microphone telemetry at song volume zero measured input
+  RMS/peak `0.004000` / `0.004044`, post-gain RMS/peak `0.001400` / `0.001415`,
+  and peak ratio `0.349901`. The 0.35 graph remained independent at minimum song
+  volume, with a running context, live/unmuted 48 kHz track, default sink,
+  unmuted/currently-audible web contents, concurrent music, 25 toggles, reload/close
+  cleanup, and zero renderer errors. Human hearing and physical round-trip remain
+  explicitly unclaimed.
+- Fresh regressions passed microphone 74/74, Queue/History 8/8, processing retry
+  6/6/113, rendered processing 10/10, timing 33/33, Demucs 4/4, and automation
+  isolation 3/3. APPX 0.3.4.0 is x64 with all four assets and exactly
+  `runFullTrust` plus `microphone`. The rejected `f6662f...` ASAR is superseded.
+  Store submission remains blocked by placeholder `KaraokeStudio` / `CN=ms`
+  identity and unsigned artifacts. Evidence:
+  `scripts/qa-artifacts/release-0.3.4-tank-final/release-verdict.json`.
+
+- 2026-09-20 Trinity invalidation notice: the fixed 0.35 design is superseded by an
+  adjustable independent 0–4 monitor level with a 2.0 default, immediate live GainNode
+  updates, explicit mute-at-zero, pre/post meters, and too-hot/clipping warnings. Fresh
+  default-device telemetry measured input RMS/peak `0.003873` / `0.003922` and default
+  output `0.007747` / `0.007843`; 4.0 remained below clipping, level zero produced zero
+  monitor output, and music remained playing independently. All prior 0.3.4 artifacts,
+  hashes, provenance, and package verdicts are invalid. No package/release/install is
+  authorized.
+
+- 2026-09-20 adjustable microphone independent review: **APPROVE SOURCE** and release
+  ready for a fresh rebuild/install. Fresh build, microphone 95/95, rendered CDP, and
+  Queue/History 8/8 passed. Real-device testing covered 0%, 100%, 200%, and 400% at
+  song volumes 0 and 82% while music remained playing; measured peak ratios were 0,
+  1.000, 1.997–2.000, and 4.013 with no clipping. A separate default-level window
+  measured input/output peaks `0.002930` / `0.005859` (2.0 ratio, -44.6 dBFS output),
+  12.3 dB above the rejected 0.35-gain output. The 48 kHz context was running, the
+  48 kHz track live/enabled/unmuted with DSP off, and the system-default sink was used.
+  Twenty-five toggle cycles, permission retry, synthetic track-ended retry, pagehide,
+  reload, and close cleanup passed with zero renderer errors.
+- Source inspection confirmed the minimal analyser/gain graph, bounded immediate live
+  gain changes, independent song volume, intentional mute, accessible meters/dBFS and
+  diagnostics, and no recording, persistence, upload, limiter, or buffered processing.
+  The displayed 50 ms is only an output estimate. Human audibility, physical wired
+  endpoint identity, physical unplug, and physical round-trip latency remain unclaimed.
+  All earlier 0.3.4 binaries and evidence remain invalid. Fresh evidence:
+  `scripts/qa-artifacts/microphone-adjustable-tank-fresh-2026-09-20/report.json`,
+  `scripts/qa-artifacts/microphone-signal-tank-fresh-2026-09-20/report.json`,
+  `scripts/qa-artifacts/microphone-monitor-rendered-fresh/`, and
+  `scripts/qa-artifacts/queue-history-fresh/report.json`.
+
+- 2026-09-20 final 0.3.4 package review: **APPROVE PACKAGE / BLOCK STORE
+  SUBMISSION**. Independently recomputed final hashes
+  `c02065bca43d6d3f41a56760a9a38ee59b9c6329ab24b57a27c12fa1554ee59e`
+  (NSIS) and
+  `5bab9405d93bb2a8773948926a202ee30d09e9c1598399d6dcd4c845297a1551`
+  (APPX), matching provenance and `SHA256SUMS.txt`.
+- Package evidence passed microphone 95/95, rendered controls/meters, real gain ratios
+  0/1/2/4 at player volumes 0 and 82% with concurrent music, 25/25 cleanup cycles,
+  permission and device-ended recovery, Queue/History 8/8, processing retry 6/6 with
+  113 assertions, rendered processing 10/10, timing 33/33, Demucs 4/4, automation
+  isolation 3/3, and private-source integrity 16/16 with zero differences. Exact
+  staging/APPX payload comparison matched 553 files and source provenance matched all
+  83 entries; nine secret-scan scopes had zero findings.
+- No package QA blockers remain. Store submission is blocked by placeholder
+  `KaraokeStudio` / `CN=ms` identity and unsigned artifacts. Physical audibility,
+  wired endpoint identity, physical unplug, and physical round-trip latency remain
+  unclaimed. Authoritative evidence:
+  `scripts/qa-artifacts/release-0.3.4-final-approved/release-verdict.json`.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): Tank's final 0.3.4 package approval is canonical. Installation preserved library/playlists/processed data, live music+mic ratio was approximately 2, and cleanup passed. Normal app PID 26988 remains running with Mic OFF and automation disabled; Store submission remains blocked.

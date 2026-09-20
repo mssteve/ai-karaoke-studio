@@ -203,6 +203,9 @@ async function verifyAppxManifest(appxRoot) {
     || application.entryPoint !== 'Windows.FullTrustApplication') {
     throw new Error('APPX application identity or executable entry is inconsistent.')
   }
+  if (!/<DeviceCapability\b[^>]*\bName=(?:"microphone"|'microphone')[^>]*\/?>/i.test(manifest)) {
+    throw new Error('APPX manifest is missing the microphone device capability.')
+  }
   const requiredAssets = [
     'assets/StoreLogo.png',
     'assets/Square150x150Logo.png',
@@ -222,6 +225,7 @@ async function verifyAppxManifest(appxRoot) {
   return {
     identity,
     application,
+    microphoneCapability: true,
     requiredAssets,
     partnerCenterIdentityConfigured: identity.publisher !== 'CN=ms',
   }

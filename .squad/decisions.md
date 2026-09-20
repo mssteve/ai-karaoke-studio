@@ -2,6 +2,136 @@
 
 ## Active Decisions
 
+### 2026-09-20T10:12:08-07:00: Final adjustable microphone 0.3.4 package approved
+
+**By:** Tank, Switch
+
+**What:** Supersede every earlier 0.3.4 binary, hash, provenance file, and package
+verdict with the clean adjustable-monitor release built from Tank's approved source.
+The only final artifacts are `release/Karaoke Studio-Setup-0.3.4.exe`
+(`c02065bca43d6d3f41a56760a9a38ee59b9c6329ab24b57a27c12fa1554ee59e`) and
+`release/Karaoke Studio-Setup-0.3.4.appx`
+(`5bab9405d93bb2a8773948926a202ee30d09e9c1598399d6dcd4c845297a1551`).
+The authoritative provenance SHA-256 is
+`45bb836bfa8fbbfb7118d3404225066fa5d173e0f9be8d4cf7339ea85c378d00`.
+Tank independently reviewed the package-backed evidence and approved it with no QA
+blocker. The authoritative verdict is
+`scripts/qa-artifacts/release-0.3.4-final-approved/release-verdict.json`.
+
+**Why:** The canonical workflow built both targets from one clean build and recorded 83
+source entries with aggregate
+`dac4a71eab0027b4ccc0c6d86c45897bfe548b3b02a089e5747585e2c94d1917`, zero source
+differences, and zero secret findings across nine scopes. Exact staging and APPX
+payload comparison matched 553/553 files and ASAR
+`92d31eadb3ad5a7fffdb6816de0aabf6a9b43863a1e595da2dbf80a4baef0073`.
+Package QA passed microphone 95/95 plus real 0/1/2/4 gain ratios, rendered meters and
+diagnostics, 25 cleanup cycles, permission/device recovery, Queue 8/8, processing retry
+6/6 with 113 assertions, rendered processing 10/10, timing 33/33, Demucs 4/4,
+automation isolation 3/3, and private sources 16/16 unchanged. APPX is x64 0.3.4.0
+with exactly `runFullTrust` and `microphone`. Store submission remains blocked by
+placeholder `KaraokeStudio` / `CN=ms` identity and unsigned artifacts.
+
+The final approved package was installed successfully without losing the existing
+library, playlists, or processed data. Installed validation observed simultaneous
+music and microphone output at an approximate ratio of 2, followed by successful
+cleanup. The normal app remains running as PID 26988 with Mic OFF and automation
+disabled. Nothing was signed, submitted, committed, merged, or pushed, and the normal
+app must not be stopped.
+
+This final adjustable implementation supersedes both rejected microphone packages:
+the original player-volume-scaled `playerVolume * 0.25` monitor was inaudible at low
+music volume, and the later fixed 0.35 monitor remained too conservative for the
+actual microphone. The canonical implementation uses an independent 0–400% level in
+5% steps, defaults to 200% (+6 dB), exposes analyser meters, diagnostics, and clipping
+warnings, and preserves a direct graph with no latency-adding processing while music
+volume remains independent.
+
+### 2026-09-20T09:37:07-07:00: Adjustable microphone monitor source approval
+
+**By:** Tank
+
+**What:** Independently approve the adjustable microphone monitor source for release
+rebuild and installation. Fresh validation passed the production build, all 95
+deterministic microphone checks, rendered CDP validation, Queue/History 8/8, and a
+real-device matrix at 0%, 100%, 200%, and 400% monitor levels with song volume at both
+0 and 82%. The measured post/input peak ratios were 0, 1.000, 1.997–2.000, and
+4.013; level zero remained Live with output at or below 0.000007, all nonzero levels
+produced nonzero output, and no tested phase clipped. A separate fresh default-level
+window measured input/output peaks 0.002930/0.005859 (ratio 2.0), approximately
+-44.6 dBFS output and 12.3 dB above the rejected 0.35-gain result.
+
+The context was running at 48 kHz with a live, enabled, unmuted 48 kHz track, DSP off,
+the system-default sink, 10 ms base plus 40 ms output latency, and concurrent music
+playback. Twenty-five on/off cycles, permission-denial retry, synthetic track-ended
+retry, pagehide, reload, and process-close cleanup passed with zero renderer errors.
+Only aggregate analyser telemetry was observed; no audio was recorded or persisted.
+
+**Why:** Source inspection confirms the minimal
+`source → input analyser → bounded gain → output analyser → destination` graph, immediate
+updates on the existing GainNode, independent song volume, explicit mute at zero, and
+accessible meters, dBFS, no-input, output-route, too-hot, and clipping diagnostics.
+Analyser nodes add no buffering stage or limiter; the displayed 50 ms is an output-side
+API estimate, not measured physical round-trip latency. Physical audibility, wired
+headphone identity, physical unplug, and acoustic feedback were not claimed. All older
+0.3.4 packages, hashes, provenance, and QA artifacts remain invalid; a fresh release
+rebuild/install is required.
+
+### 2026-09-20T09:36:00-07:00: Adjustable independent microphone monitor level
+
+**By:** Trinity
+
+**What:** The fixed 0.35 monitor attenuation is replaced by a renderer-local
+`Mic monitor level` from 0.0–4.0 in 0.05 steps, defaulting to 2.0 (+6.0 dB).
+The value updates the existing `GainNode` immediately without rebuilding the stream or
+`AudioContext`; it is independent of song volume and is session-only because the
+renderer has no established local-settings persistence convention. Level zero keeps
+the microphone Live while intentionally muting monitor output. The minimal graph remains
+`getUserMedia → input analyser → bounded GainNode → output analyser → destination`.
+No compressor was added, so there is no additional look-ahead latency. Output ≥0.85
+full scale is marked too hot and ≥0.98 is marked clipping; high-boost UI warns about
+feedback and requires wired headphones for physical acceptance.
+
+**Why:** Package telemetry measured approximately 0.004 RMS/peak input and only 0.0014
+post-gain at 0.35, making the approved replacement likely inaudible. A 2.0 default
+produced 0.007747 RMS / 0.007843 peak in fresh default-device telemetry, over five times
+the rejected output, while the bounded 4.0 check remained far below clipping. The
+0.3.4 EXE, APPX, hashes, provenance, and all prior package approvals are invalidated.
+This revision must not be packaged, installed, released, committed, or pushed.
+
+### 2026-09-19T09:56:19.057-07:00: Experimental live microphone monitor architecture and source approval (consolidated)
+
+**By:** Morpheus, Trinity, Tank
+
+**What:** The `feature/live-mic-monitor` experiment uses renderer-owned Web Audio:
+`getUserMedia` → `MediaStreamAudioSourceNode` → `GainNode` →
+`AudioContext.destination`, with `latencyHint: 'interactive'`. AudioWorklet is
+unnecessary for passthrough, and native WASAPI is deferred unless representative wired
+loopback measurements show that Chromium cannot meet the experimental target. The
+accessible Mic toggle sits beside Volume and exposes off, requesting, active, and
+retryable-error states, a wired-headphone/Bluetooth warning, and an explicitly
+output-only latency estimate. Monitor gain follows player volume with a 0.25 cap.
+
+Microphone audio remains renderer-only: no recording, persistence, sample-bearing IPC,
+AI path, or networking. Electron permissions default deny and allow only top-level,
+audio-only media requests from the main `webContents` at `karaoke://app`; APPX declares
+the microphone device capability. Source validation is approved after a clean build,
+microphone QA 51/51, rendered CDP validation, Queue/History 8/8, and zero renderer
+errors. Real-device testing passed 25/25 toggle cycles at 48 kHz, two channels, DSP
+off, 10 ms `baseLatency`, 32 ms `outputLatency`, and a displayed 42 ms estimate, with
+cleanup after off, pagehide, reload, and close.
+
+This remains an unreleased experimental branch. Testing began muted and used about
+0.01 monitor gain; no safe speaker-monitoring claim is made. No Bluetooth or
+headphone-named endpoint was detected. Physical wired round-trip latency and physical
+device unplug remain manual gaps; wired headphones are recommended and Bluetooth is
+excluded from acceptance.
+
+**Why:** Direct Web Audio preserves the sandboxed architecture and minimizes latency,
+dependency, packaging, and lifecycle risk while providing sufficient gain control and
+telemetry. The measured API values describe only the output-side estimate, not physical
+microphone-to-output latency, so source approval must not be represented as release
+approval or as proof of safe low-latency speaker monitoring.
+
 ### 2026-09-19T02:52:27.047-07:00: Deterministic lyric timestamp normalization and fallback (consolidated)
 
 **By:** Steve, Morpheus, Neo, Tank
