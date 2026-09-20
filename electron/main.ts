@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
@@ -46,6 +46,10 @@ import {
   normalizeWhisperChunksWithDiagnostics,
   validateLyricLines,
 } from './transcription-timing.js'
+import {
+  shouldAllowMediaPermissionCheck,
+  shouldAllowMediaPermissionRequest,
+} from './media-permissions.js'
 import type {
   ArtifactFingerprint,
   ComponentFailure,
@@ -2289,6 +2293,26 @@ async function createWindow() {
   logDiagnostic('INFO', 'Desktop UI loaded', mainWindow.webContents.getURL())
 }
 
+function registerPermissionHandlers() {
+  const appSession = session.defaultSession
+  appSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(shouldAllowMediaPermissionRequest(
+      permission,
+      details,
+      webContents.id,
+      mainWindow?.webContents.id,
+    ))
+  })
+  appSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) =>
+    shouldAllowMediaPermissionCheck(
+      permission,
+      requestingOrigin,
+      details,
+      webContents?.id,
+      mainWindow?.webContents.id,
+    ))
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) app.quit()
 
@@ -2312,6 +2336,7 @@ app.whenReady().then(async () => {
   if (recoveredInterruptedProcessing) await saveLibrary()
   await loadPlaylists()
   registerPrivateProtocol()
+  registerPermissionHandlers()
 
   ipcMain.handle('library:get', () => library.map(hydrate))
   ipcMain.handle('library:import', () => importSongs())

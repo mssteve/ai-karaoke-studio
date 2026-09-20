@@ -190,3 +190,19 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   are unsigned. No rebuild, signing, submission, commit, or push occurred.
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Tank's lyric, Demucs, retry, and final frozen 0.3.3 approvals are canonical. Authoritative NSIS/APPX/provenance hashes are `04d9c061...`, `fe78e626...`, and `fecd4474...`; Store remains blocked and no commit/push occurred.
+
+- 2026-09-19 live microphone monitor review: **APPROVE source validation with explicit
+  physical-latency and hardware-unplug gaps**. Fresh build, microphone 51/51, rendered
+  CDP evidence, and Queue/History 8/8 passed. The actual default capture/output path was
+  exercised in an isolated profile starting muted, then at 4% player volume
+  (approximately 0.01 monitor gain): 48 kHz context/capture, two applied input channels,
+  DSP off, 10 ms base latency, 32 ms output latency, and a 42 ms output-only estimate.
+  Playback, pause, and Vocal mode switching retained one monitor graph. All 25 toggle
+  cycles reached one live track/context on and zero on off; pagehide, reload, and close
+  also left zero live resources, with zero renderer errors. Permission denial and track
+  end were simulated and recovered/released correctly. No Bluetooth or headphone-named
+  endpoint was detected, so safe speaker monitoring and physical round-trip latency are
+  not claimed. Evidence:
+  `scripts/qa-artifacts/microphone-real-device-tank-2026-09-19/report.json`.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): Tank's live microphone verdict is canonical source approval only: physical wired round-trip and physical unplug remain manual, Bluetooth is excluded, and no safe speaker-monitoring or release claim is permitted.

@@ -51,6 +51,7 @@ import {
   retryKey,
 } from './processingUx'
 import { getModeSource, usePlaybackController, type AudioMode } from './usePlaybackController'
+import { useMicrophoneMonitor } from './useMicrophoneMonitor'
 
 const modeLabels: Record<AudioMode, string> = {
   original: 'Original',
@@ -120,6 +121,7 @@ function App() {
   const lyricRefs = useRef<Array<HTMLButtonElement | null>>([])
   const handledEndRef = useRef<string | undefined>(undefined)
   const pendingRetryKeysRef = useRef(new Set<string>())
+  const microphoneWarningShownRef = useRef(false)
 
   const selected = songs.find((song) => song.id === selectedId)
   const processingDetails = selected?.processingDetails
@@ -149,6 +151,7 @@ function App() {
   const queue = playlists.playlists.find((playlist) => playlist.kind === 'queue')
   const history = playlists.playlists.find((playlist) => playlist.kind === 'history')
   const playback = usePlaybackController({ selected, mode, onError: showError })
+  const microphone = useMicrophoneMonitor(volume)
   const { audioRef, currentTime, duration, status: playbackStatus, isPlaying } = playback
   const filteredSongs = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -339,6 +342,38 @@ function App() {
     setError(detail ? `${message}: ${detail}` : message)
     void karaokeApi.reportRendererError(message, detail).catch(() => undefined)
   }
+
+  function toggleMicrophoneMonitor() {
+    if (microphone.state === 'on' || microphone.state === 'requesting') {
+      void microphone.disable()
+      return
+    }
+    if (!microphoneWarningShownRef.current) {
+      microphoneWarningShownRef.current = true
+      setNotice('Use wired headphones before monitoring to prevent feedback. Bluetooth latency is unsupported.')
+    }
+    void microphone.enable()
+  }
+
+  const monitorLatencyMs = microphone.telemetry.estimatedOutputLatency === undefined
+    ? undefined
+    : Math.round(microphone.telemetry.estimatedOutputLatency * 1000)
+  const microphoneLabel = microphone.state === 'on'
+    ? 'Turn microphone monitor off'
+    : microphone.state === 'requesting'
+      ? 'Cancel microphone request'
+      : microphone.state === 'error'
+        ? 'Retry microphone monitor'
+        : 'Turn microphone monitor on'
+  const microphoneErrorLabel = microphone.errorCode === 'permission-denied'
+    ? 'Permission denied — retry'
+    : microphone.errorCode === 'no-device'
+      ? 'No microphone — retry'
+      : microphone.errorCode === 'device-lost'
+        ? 'Mic disconnected — retry'
+        : microphone.errorCode === 'context-suspended'
+          ? 'Audio interrupted — retry'
+          : 'Mic unavailable — retry'
 
   function markTransition(reason: PlaylistTransitionReason) {
     setTransitionReason(reason)
@@ -1137,8 +1172,29 @@ function App() {
               value={currentTime} disabled={!selected || duration <= 0} aria-label="Playback position"
               onChange={(event) => seekTo(Number(event.target.value))} /><span>{formatTime(duration)}</span></div>
         </div>
-        <div className="volume"><Volume2 size={17} /><input type="range" min="0" max="1" step="0.01"
-          value={volume} aria-label="Volume" onChange={(event) => setVolume(Number(event.target.value))} /></div>
+        <div className="player-output-controls">
+          <div className={`mic-monitor ${microphone.state}`} data-testid="mic-monitor-state">
+            <button type="button" data-testid="mic-monitor-toggle" aria-label={microphoneLabel}
+              title={`${microphone.error ?? microphoneLabel}. Wired headphones recommended. Monitor level follows player volume with a -12 dB maximum.`}
+              aria-pressed={microphone.state === 'on'} onClick={toggleMicrophoneMonitor}>
+              {microphone.state === 'requesting'
+                ? <LoaderCircle className="spin" size={17} />
+                : <Mic2 size={17} />}
+            </button>
+            <span role={microphone.state === 'error' ? 'alert' : 'status'}>
+              {microphone.state === 'off' && 'Mic off'}
+              {microphone.state === 'requesting' && 'Requesting mic…'}
+              {microphone.state === 'on' && <>Mic live
+                {monitorLatencyMs !== undefined && <small data-testid="mic-monitor-latency">
+                  {monitorLatencyMs} ms output estimate
+                </small>}</>}
+              {microphone.state === 'error' && microphoneErrorLabel}
+            </span>
+          </div>
+          <div className="volume"><Volume2 size={17} /><input type="range" min="0" max="1" step="0.01"
+            data-testid="player-volume" value={volume} aria-label="Volume"
+            onChange={(event) => setVolume(Number(event.target.value))} /></div>
+        </div>
       </footer>
 
       {menuSongId && menuPosition && createPortal((

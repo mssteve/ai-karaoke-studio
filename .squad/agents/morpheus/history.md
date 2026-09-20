@@ -69,3 +69,22 @@ Karaoke Studio processes music entirely on-device with FFmpeg, Demucs ONNX, and 
 - Fallback usage is persisted as transcription/lyrics diagnostics and disclosed in the Lyrics UI without disabling playback. Deterministic timing QA now passes 17 checks; runtime failure/restart/retry and degraded-timing disclosure pass 5/5 scenarios with 92 assertions.
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Neo's deterministic bounded refinement superseded the initial timestamp algorithm, Tank approved it at timing 33, and the final behavior is included in the approved frozen 0.3.3 package.
+
+- 2026-09-19 live microphone monitoring research selected a renderer-only Chromium
+  `getUserMedia` -> Web Audio source -> gain -> destination graph with
+  `latencyHint: 'interactive'` for the first branch experiment. AudioWorklet adds no
+  passthrough advantage without custom DSP; native WASAPI remains a measured phase-two
+  fallback because of native ABI/helper, packaging, device, and Store risk.
+- Planning assumes a provisional 40-120 ms wired acoustic round trip and requires
+  actual loopback measurement; `baseLatency`, `outputLatency`, and track settings are
+  estimates, not round-trip proof. Bluetooth is excluded from latency acceptance.
+- Browser voice DSP defaults off, mono/48 kHz/low-latency constraints are preferences,
+  monitor gain defaults to -12 dB, headphones are strongly recommended, and every
+  stop/reload/minimize/suspend/device-loss path must release tracks and close the
+  context. No recording or persistence is allowed.
+- The implementation adds origin/audio-only Electron permission handlers and APPX
+  `microphone` capability while preserving the secure `karaoke://app` origin, sandbox,
+  context isolation, Node isolation, and CSP. The consolidated architecture and source
+  approval are in `.squad/decisions.md`.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): The direct renderer Web Audio architecture is canonical and source-approved; AudioWorklet remains unnecessary, WASAPI is deferred, and the experiment is not released — decided by Morpheus, Trinity, and Tank.

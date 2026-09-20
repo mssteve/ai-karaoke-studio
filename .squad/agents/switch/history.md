@@ -104,3 +104,5 @@ Karaoke Studio targets Windows and later Microsoft Store distribution. Requested
   (SHA-256 `98e8a406b01e695d1e6d2288ac7a78dc9ef6f47b75475a06baf9b9d6ef25f69e`).
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Switch's preliminary 0.3.3 hashes are superseded by Tank's frozen approval: NSIS `04d9c061...`, APPX `fe78e626...`, provenance `fecd4474...`. The local initial commit remains pending; GitHub push is blocked by noninteractive `mssteve` authentication.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): `feature/live-mic-monitor` is source-approved but explicitly unpackageable in this consolidation; any future release must preserve APPX microphone capability verification and run the full Windows release workflow.

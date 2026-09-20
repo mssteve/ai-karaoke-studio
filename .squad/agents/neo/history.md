@@ -132,3 +132,5 @@ Karaoke Studio is an Electron/React Windows app using local FFmpeg, Demucs ONNX,
   with two nonzero readiness-proven images. No package was produced.
 
 📌 Team update (2026-09-19T02:52:27.047-07:00): Tank approved Neo's deterministic lyric timestamp normalization/fallback, and the frozen 0.3.3 package containing it is approved. Store submission remains blocked; local commit and authenticated GitHub publication remain pending.
+
+📌 Team update (2026-09-19T09:56:19.057-07:00): The experimental microphone branch preserves the hardened renderer boundary: default-deny Electron permissions allow only top-level audio media from the main `karaoke://app` web contents, with no audio-bearing IPC, persistence, or network path.

@@ -2,6 +2,40 @@
 
 ## Active Decisions
 
+### 2026-09-19T09:56:19.057-07:00: Experimental live microphone monitor architecture and source approval (consolidated)
+
+**By:** Morpheus, Trinity, Tank
+
+**What:** The `feature/live-mic-monitor` experiment uses renderer-owned Web Audio:
+`getUserMedia` → `MediaStreamAudioSourceNode` → `GainNode` →
+`AudioContext.destination`, with `latencyHint: 'interactive'`. AudioWorklet is
+unnecessary for passthrough, and native WASAPI is deferred unless representative wired
+loopback measurements show that Chromium cannot meet the experimental target. The
+accessible Mic toggle sits beside Volume and exposes off, requesting, active, and
+retryable-error states, a wired-headphone/Bluetooth warning, and an explicitly
+output-only latency estimate. Monitor gain follows player volume with a 0.25 cap.
+
+Microphone audio remains renderer-only: no recording, persistence, sample-bearing IPC,
+AI path, or networking. Electron permissions default deny and allow only top-level,
+audio-only media requests from the main `webContents` at `karaoke://app`; APPX declares
+the microphone device capability. Source validation is approved after a clean build,
+microphone QA 51/51, rendered CDP validation, Queue/History 8/8, and zero renderer
+errors. Real-device testing passed 25/25 toggle cycles at 48 kHz, two channels, DSP
+off, 10 ms `baseLatency`, 32 ms `outputLatency`, and a displayed 42 ms estimate, with
+cleanup after off, pagehide, reload, and close.
+
+This remains an unreleased experimental branch. Testing began muted and used about
+0.01 monitor gain; no safe speaker-monitoring claim is made. No Bluetooth or
+headphone-named endpoint was detected. Physical wired round-trip latency and physical
+device unplug remain manual gaps; wired headphones are recommended and Bluetooth is
+excluded from acceptance.
+
+**Why:** Direct Web Audio preserves the sandboxed architecture and minimizes latency,
+dependency, packaging, and lifecycle risk while providing sufficient gain control and
+telemetry. The measured API values describe only the output-side estimate, not physical
+microphone-to-output latency, so source approval must not be represented as release
+approval or as proof of safe low-latency speaker monitoring.
+
 ### 2026-09-19T02:52:27.047-07:00: Deterministic lyric timestamp normalization and fallback (consolidated)
 
 **By:** Steve, Morpheus, Neo, Tank

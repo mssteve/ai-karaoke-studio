@@ -20,6 +20,8 @@
     "qa:processing-resume": "node scripts/qa-processing-resume.mjs",
     "qa:processing-resources": "node scripts/qa-processing-resources.mjs",
     "qa:processing-artifacts": "node scripts/qa-processing-artifacts.mjs",
+    "qa:microphone-monitor": "node scripts/qa-microphone-monitor.mjs",
+    "qa:microphone-monitor-rendered": "node scripts/qa-microphone-monitor-rendered.mjs",
     "qa:demucs-inference": "node scripts/qa-demucs-inference.mjs",
     "qa:demucs-runtime": "node scripts/qa-demucs-runtime.mjs",
     "qa:demucs-music-acceptance": "node scripts/qa-demucs-music-acceptance.mjs",
@@ -119,7 +121,11 @@
       "applicationId": "KaraokeStudio",
       "displayName": "Karaoke Studio",
       "publisherDisplayName": "Karaoke Studio",
-      "identityName": "KaraokeStudio"
+      "identityName": "KaraokeStudio",
+      "capabilities": [
+        "runFullTrust",
+        "microphone"
+      ]
     }
   }
 }
