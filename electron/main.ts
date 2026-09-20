@@ -2043,6 +2043,9 @@ async function automateRenderedUi(command: AutomationCommand) {
         ariaLabel: element.getAttribute('aria-label'),
         ariaSelected: element.getAttribute('aria-selected'),
         value: element instanceof HTMLInputElement ? element.value : undefined,
+        min: element instanceof HTMLInputElement ? element.min : undefined,
+        max: element instanceof HTMLInputElement ? element.max : undefined,
+        step: element instanceof HTMLInputElement ? element.step : undefined,
         media: element instanceof HTMLMediaElement ? {
           currentTime: element.currentTime,
           duration: element.duration,
@@ -2064,6 +2067,7 @@ async function automateRenderedUi(command: AutomationCommand) {
         } : undefined,
         disabled: 'disabled' in element ? Boolean(element.disabled) : false,
         className: element.className,
+        dataset: { ...element.dataset },
       };
     })()
   `, true)
@@ -2086,6 +2090,8 @@ async function handleAutomation(command: AutomationCommand) {
           focused: mainWindow.isFocused(),
           title: mainWindow.getTitle(),
           url: mainWindow.webContents.getURL(),
+          audioMuted: mainWindow.webContents.isAudioMuted(),
+          currentlyAudible: mainWindow.webContents.isCurrentlyAudible(),
         } : null,
         bridgeExpected: Boolean(mainWindow),
         activeJobs: processingScheduler.keys(),

@@ -167,7 +167,32 @@ launch the packaged app with automation alone and require `qa-configure` to reje
 | Package secret finding | Reject and replace all candidate artifacts; exclude at packaging scope, rotate/revoke any potentially live credential externally, then rerun the full workflow |
 | Signature absent | Record unsigned status; never improvise credentials |
 
-## 8. Cleanup and Completion
+## 8. Packaged Microphone Monitor Gate
+
+When a release includes live microphone monitoring, validate the exact installed NSIS
+candidate with an isolated profile and safe low player volume:
+
+- Run the deterministic microphone controller and permission suite; require 51/51.
+- Capture a rendered screenshot from the installed executable and require zero renderer
+  errors.
+- If a default microphone is available, complete 25 on/off cycles and require every off
+  transition to release the capture track and audio context. Also verify cleanup on
+  reload and close.
+- Exercise permission-denied and device-ended recovery. Bind simulation evidence to the
+  packaged renderer/main hashes recorded by provenance.
+- Confirm the packaged renderer uses only
+  `getUserMedia` → `MediaStreamAudioSourceNode` → `GainNode` → destination and contains
+  no recording, sample persistence, sample IPC, or network-output path.
+- Confirm the permission handlers remain fail-closed and allow only trusted top-level
+  audio requests from `karaoke://app`.
+- Confirm APPX declares `microphone` and `runFullTrust`, with no unrelated added
+  capability.
+
+Record only technical measurements and aggregate results. Never record device names or
+captured/private audio. API latency remains an output estimate, not a physical
+microphone-to-output round-trip claim.
+
+## 9. Cleanup and Completion
 
 The workflow removes its lock in `finally`, uninstalls its isolated NSIS verification
 install, and removes temporary APPX extraction. If interrupted, remove only verified

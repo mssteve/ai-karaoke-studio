@@ -88,3 +88,5 @@ Karaoke Studio processes music entirely on-device with FFmpeg, Demucs ONNX, and 
   approval are in `.squad/decisions.md`.
 
 📌 Team update (2026-09-19T09:56:19.057-07:00): The direct renderer Web Audio architecture is canonical and source-approved; AudioWorklet remains unnecessary, WASAPI is deferred, and the experiment is not released — decided by Morpheus, Trinity, and Tank.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): The direct analyser/gain graph is now installed and package-approved in 0.3.4 with independent 0–400% microphone level and 200% default. No latency-adding stage was introduced; physical round-trip latency and unplug remain unclaimed, and Store submission remains blocked.

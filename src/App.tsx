@@ -52,6 +52,12 @@ import {
 } from './processingUx'
 import { getModeSource, usePlaybackController, type AudioMode } from './usePlaybackController'
 import { useMicrophoneMonitor } from './useMicrophoneMonitor'
+import {
+  MAX_MONITOR_GAIN,
+  MIN_MONITOR_GAIN,
+  MONITOR_GAIN_STEP,
+  monitorGainDecibels,
+} from './microphoneMonitor'
 
 const modeLabels: Record<AudioMode, string> = {
   original: 'Original',
@@ -64,6 +70,11 @@ function formatTime(seconds: number) {
   if (!Number.isFinite(seconds)) return '0:00'
   const minutes = Math.floor(seconds / 60)
   return `${minutes}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`
+}
+
+function levelDecibels(level?: number) {
+  if (!level || level <= 0) return '−∞ dBFS'
+  return `${(20 * Math.log10(level)).toFixed(1)} dBFS`
 }
 
 const processingGroups: Array<{ id: ProcessingItemId; children?: ProcessingItemId[] }> = [
@@ -151,7 +162,7 @@ function App() {
   const queue = playlists.playlists.find((playlist) => playlist.kind === 'queue')
   const history = playlists.playlists.find((playlist) => playlist.kind === 'history')
   const playback = usePlaybackController({ selected, mode, onError: showError })
-  const microphone = useMicrophoneMonitor(volume)
+  const microphone = useMicrophoneMonitor()
   const { audioRef, currentTime, duration, status: playbackStatus, isPlaying } = playback
   const filteredSongs = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -358,6 +369,22 @@ function App() {
   const monitorLatencyMs = microphone.telemetry.estimatedOutputLatency === undefined
     ? undefined
     : Math.round(microphone.telemetry.estimatedOutputLatency * 1000)
+  const microphoneLevel = Math.min(1, (microphone.telemetry.inputPeak ?? 0) / 0.18)
+  const monitorOutputLevel = Math.min(1, (microphone.telemetry.outputPeak ?? 0) / 0.85)
+  const noMicrophoneInput = microphone.state === 'on'
+    && (microphone.telemetry.silenceDurationMs ?? 0) >= 1_500
+  const microphoneStatus = microphone.state === 'on' && microphone.gain === 0
+    ? 'Mic live — monitor muted'
+    : noMicrophoneInput
+    ? 'Mic live — no input detected'
+    : microphone.state === 'on' && microphone.telemetry.signalDetected
+      ? 'Mic input detected'
+      : 'Mic live'
+  const monitorGainDb = monitorGainDecibels(microphone.gain)
+  const monitorGainLabel = microphone.gain === 0
+    ? '0% (muted)'
+    : `${Math.round(microphone.gain * 100)}% (${monitorGainDb >= 0 ? '+' : ''}${monitorGainDb.toFixed(1)} dB)`
+  const monitorOutputDb = levelDecibels(microphone.telemetry.outputPeak)
   const microphoneLabel = microphone.state === 'on'
     ? 'Turn microphone monitor off'
     : microphone.state === 'requesting'
@@ -1173,9 +1200,30 @@ function App() {
               onChange={(event) => seekTo(Number(event.target.value))} /><span>{formatTime(duration)}</span></div>
         </div>
         <div className="player-output-controls">
-          <div className={`mic-monitor ${microphone.state}`} data-testid="mic-monitor-state">
+          <div className={`mic-monitor ${microphone.state}`} data-testid="mic-monitor-state"
+            data-context-state={microphone.telemetry.contextState}
+            data-context-sample-rate={microphone.telemetry.contextSampleRate}
+            data-track-state={microphone.telemetry.trackReadyState}
+            data-track-muted={String(microphone.telemetry.trackMuted ?? '')}
+            data-track-enabled={String(microphone.telemetry.trackEnabled ?? '')}
+            data-track-sample-rate={microphone.telemetry.trackSampleRate}
+            data-track-channel-count={microphone.telemetry.trackChannelCount}
+            data-track-latency={microphone.telemetry.trackLatency}
+            data-echo-cancellation={String(microphone.telemetry.echoCancellation ?? '')}
+            data-noise-suppression={String(microphone.telemetry.noiseSuppression ?? '')}
+            data-auto-gain-control={String(microphone.telemetry.autoGainControl ?? '')}
+            data-base-latency={microphone.telemetry.baseLatency}
+            data-output-latency={microphone.telemetry.outputLatency}
+            data-input-rms={microphone.telemetry.inputRms?.toFixed(6)}
+            data-input-peak={microphone.telemetry.inputPeak?.toFixed(6)}
+            data-output-rms={microphone.telemetry.outputRms?.toFixed(6)}
+            data-output-peak={microphone.telemetry.outputPeak?.toFixed(6)}
+            data-monitor-gain={microphone.gain.toFixed(3)}
+            data-output-too-hot={String(microphone.telemetry.outputTooHot ?? false)}
+            data-output-clipping={String(microphone.telemetry.outputClipping ?? false)}
+            data-output-device={microphone.telemetry.outputDevice}>
             <button type="button" data-testid="mic-monitor-toggle" aria-label={microphoneLabel}
-              title={`${microphone.error ?? microphoneLabel}. Wired headphones recommended. Monitor level follows player volume with a -12 dB maximum.`}
+              title={`${microphone.error ?? microphoneLabel}. Wired headphones recommended. Monitor gain is independent of song volume and uses the system default output.`}
               aria-pressed={microphone.state === 'on'} onClick={toggleMicrophoneMonitor}>
               {microphone.state === 'requesting'
                 ? <LoaderCircle className="spin" size={17} />
@@ -1184,12 +1232,45 @@ function App() {
             <span role={microphone.state === 'error' ? 'alert' : 'status'}>
               {microphone.state === 'off' && 'Mic off'}
               {microphone.state === 'requesting' && 'Requesting mic…'}
-              {microphone.state === 'on' && <>Mic live
+              {microphone.state === 'on' && <>{microphoneStatus}
+                <span className="mic-meter" aria-label={`Microphone level ${Math.round(microphoneLevel * 100)} percent`}>
+                  <span style={{ transform: `scaleX(${microphoneLevel})` }} />
+                </span>
+                <small data-testid="mic-monitor-input">
+                  Input {microphone.telemetry.signalDetected ? 'detected' : 'waiting'}
+                </small>
+                <span className={`mic-meter output ${microphone.telemetry.outputTooHot ? 'hot' : ''}`}
+                  aria-label={`Monitor output level ${Math.round(monitorOutputLevel * 100)} percent`}>
+                  <span style={{ transform: `scaleX(${monitorOutputLevel})` }} />
+                </span>
+                <small data-testid="mic-monitor-output">
+                  Monitor out {monitorOutputDb}
+                </small>
                 {monitorLatencyMs !== undefined && <small data-testid="mic-monitor-latency">
                   {monitorLatencyMs} ms output estimate
+                </small>}
+                <small data-testid="mic-monitor-device">Default output · check Windows if silent</small>
+                {microphone.telemetry.outputClipping && <small className="mic-warning" role="alert"
+                  data-testid="mic-monitor-clipping">Clipping — lower Mic monitor level</small>}
+                {!microphone.telemetry.outputClipping && microphone.telemetry.outputTooHot
+                  && <small className="mic-warning" role="alert" data-testid="mic-monitor-too-hot">
+                    Output too hot — lower level
+                  </small>}
+                {noMicrophoneInput && <small data-testid="mic-monitor-no-input">
+                  Check mic mute/input device
                 </small>}</>}
               {microphone.state === 'error' && microphoneErrorLabel}
             </span>
+            <label className="mic-level" htmlFor="mic-monitor-level">
+              <span>Mic monitor level <output>{monitorGainLabel}</output></span>
+              <input id="mic-monitor-level" type="range" min={MIN_MONITOR_GAIN} max={MAX_MONITOR_GAIN}
+                step={MONITOR_GAIN_STEP} value={microphone.gain} data-testid="mic-monitor-level"
+                aria-label={`Mic monitor level ${monitorGainLabel}`}
+                onChange={(event) => microphone.setGain(Number(event.target.value))} />
+              <small>{microphone.gain > 2
+                ? 'High boost: use wired headphones; lower it if feedback or clipping starts.'
+                : 'Independent of song volume.'}</small>
+            </label>
           </div>
           <div className="volume"><Volume2 size={17} /><input type="range" min="0" max="1" step="0.01"
             data-testid="player-volume" value={volume} aria-label="Volume"

@@ -1,6 +1,6 @@
 {
   "name": "karaoke-studio",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Private, local-AI karaoke creation studio for Windows.",
   "main": "dist-electron/main.js",
   "author": "Karaoke Studio",
@@ -21,6 +21,7 @@
     "qa:processing-resources": "node scripts/qa-processing-resources.mjs",
     "qa:processing-artifacts": "node scripts/qa-processing-artifacts.mjs",
     "qa:microphone-monitor": "node scripts/qa-microphone-monitor.mjs",
+    "qa:microphone-signal": "node scripts/qa-microphone-signal.mjs",
     "qa:microphone-monitor-rendered": "node scripts/qa-microphone-monitor-rendered.mjs",
     "qa:demucs-inference": "node scripts/qa-demucs-inference.mjs",
     "qa:demucs-runtime": "node scripts/qa-demucs-runtime.mjs",

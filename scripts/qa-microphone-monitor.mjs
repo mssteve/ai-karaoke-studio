@@ -2,11 +2,18 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  DEFAULT_MONITOR_GAIN,
   MAX_MONITOR_GAIN,
+  MIN_MONITOR_GAIN,
   MICROPHONE_CONSTRAINTS,
+  NO_INPUT_WARNING_MS,
+  OUTPUT_CLIPPING_THRESHOLD,
+  OUTPUT_TOO_HOT_THRESHOLD,
   MicrophoneMonitorController,
+  clampMonitorGain,
   classifyMicrophoneError,
-  monitorGainForPlayerVolume,
+  monitorGainDecibels,
+  signalLevel,
 } from '../src/microphoneMonitor.ts'
 import {
   shouldAllowMediaPermissionCheck,
@@ -22,9 +29,16 @@ const equal = (actual, expected, message) => {
   assert.deepEqual(actual, expected, message)
   checks += 1
 }
+const closeTo = (actual, expected, tolerance, message) => {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: ${actual} !== ${expected}`)
+  checks += 1
+}
 
 class FakeTrack extends EventTarget {
   stopped = 0
+  enabled = true
+  muted = false
+  readyState = 'live'
   constructor(settings = {}) {
     super()
     this.settings = settings
@@ -59,8 +73,19 @@ class FakeGain extends FakeNode {
   gain = new FakeAudioParam()
 }
 
+class FakeAnalyser extends FakeNode {
+  fftSize = 32
+  smoothingTimeConstant = 0
+  samples = []
+  getFloatTimeDomainData(target) {
+    target.fill(0)
+    target.set(this.samples.slice(0, target.length))
+  }
+}
+
 class FakeContext extends EventTarget {
   state = 'suspended'
+  sinkId = ''
   currentTime = 2
   sampleRate = 48_000
   baseLatency = 0.012
@@ -68,12 +93,19 @@ class FakeContext extends EventTarget {
   destination = new FakeNode()
   source = new FakeNode()
   gain = new FakeGain()
+  analysers = [new FakeAnalyser(), new FakeAnalyser()]
+  createdAnalysers = []
   resumes = 0
   closes = 0
   streams = []
   async resume() { this.resumes += 1; this.state = 'running' }
   createMediaStreamSource(stream) { this.streams.push(stream); return this.source }
   createGain() { return this.gain }
+  createAnalyser() {
+    const analyser = this.analysers.shift()
+    this.createdAnalysers.push(analyser)
+    return analyser
+  }
   async close() { this.closes += 1; this.state = 'closed' }
   suspendUnexpectedly() { this.state = 'suspended'; this.dispatchEvent(new Event('statechange')) }
 }
@@ -92,6 +124,9 @@ function createHarness() {
   const mediaDevices = new FakeMediaDevices()
   const contexts = []
   let clock = 100
+  const meters = new Map()
+  const cancelledMeters = []
+  let nextMeter = 1
   const controller = new MicrophoneMonitorController({
     isSecureContext: () => true,
     getMediaDevices: () => mediaDevices,
@@ -101,19 +136,43 @@ function createHarness() {
       return context
     },
     now: () => (clock += 5),
+    scheduleMeter: (callback) => {
+      const id = nextMeter++
+      meters.set(id, callback)
+      return id
+    },
+    cancelMeter: (handle) => {
+      cancelledMeters.push(handle)
+      meters.delete(handle)
+    },
   })
-  return { controller, mediaDevices, contexts }
+  return {
+    controller,
+    mediaDevices,
+    contexts,
+    meters,
+    cancelledMeters,
+    advance: (milliseconds) => { clock += milliseconds },
+  }
 }
 
-equal(monitorGainForPlayerVolume(1), MAX_MONITOR_GAIN, 'monitor gain is capped at the safe -12 dB baseline')
-equal(monitorGainForPlayerVolume(0.5), 0.125, 'player volume predictably scales monitor gain')
+equal(DEFAULT_MONITOR_GAIN, 2, 'quiet measured microphones default to a modest +6 dB boost')
+equal(MIN_MONITOR_GAIN, 0, 'monitor supports intentional mute')
+equal(MAX_MONITOR_GAIN, 4, 'monitor boost is bounded at +12 dB')
+equal(clampMonitorGain(-1), 0, 'gain clamps below the safe range')
+equal(clampMonitorGain(9), 4, 'gain clamps above the safe range')
+closeTo(monitorGainDecibels(2), 6.0206, 0.001, 'gain converts to an accessible dB indication')
+equal(signalLevel(new Float32Array([0.5, -0.5, 0, 0])), {
+  rms: Math.sqrt(0.125),
+  peak: 0.5,
+}, 'signal telemetry computes deterministic RMS and peak without retaining samples')
 equal(classifyMicrophoneError(new DOMException('', 'NotAllowedError')).code, 'permission-denied',
   'permission denial is classified')
 equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-device',
   'missing device is classified')
 
 {
-  const { controller, mediaDevices, contexts } = createHarness()
+  const { controller, mediaDevices, contexts, meters, cancelledMeters, advance } = createHarness()
   const tracks = [
     new FakeTrack({
       sampleRate: 48_000,
@@ -132,14 +191,59 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   await enabling
   equal(mediaDevices.requests[0], MICROPHONE_CONSTRAINTS, 'exact low-latency audio-only constraints are requested')
   equal(contexts[0].resumes, 1, 'a suspended context is resumed')
-  equal(contexts[0].source.connected, [contexts[0].gain], 'source connects directly to the gain node')
-  equal(contexts[0].gain.connected, [contexts[0].destination], 'gain connects directly to destination')
+  const [inputAnalyser, outputAnalyser] = contexts[0].createdAnalysers
+  equal(contexts[0].source.connected, [inputAnalyser], 'source connects to the zero-buffer input analyser')
+  equal(inputAnalyser.connected, [contexts[0].gain], 'input analyser connects to the monitor gain')
+  equal(contexts[0].gain.connected, [outputAnalyser], 'gain connects to the post-gain analyser')
+  equal(outputAnalyser.connected, [contexts[0].destination], 'post-gain analyser connects to destination')
   equal(controller.getSnapshot().state, 'on', 'permission success reaches on')
+  equal(controller.getSnapshot().gain, DEFAULT_MONITOR_GAIN, 'monitor gain is independent from player volume')
+  equal(contexts[0].gain.gain.calls.at(-1)[1], DEFAULT_MONITOR_GAIN, 'activation ramps to the dedicated gain')
   equal(controller.getSnapshot().telemetry.estimatedOutputLatency, 0.03,
     'base and output latency are exposed only as an output estimate')
-  controller.setPlayerVolume(0.4)
-  equal(controller.getSnapshot().gain, 0.1, 'volume updates monitor gain')
-  equal(contexts[0].gain.gain.calls.at(-1)[0], 'target', 'live gain changes use a short smoothing target')
+  equal(controller.getSnapshot().telemetry.contextState, 'running', 'running context state is exposed')
+  equal(controller.getSnapshot().telemetry.trackReadyState, 'live', 'live track state is exposed')
+  equal(controller.getSnapshot().telemetry.trackMuted, false, 'track mute flag is exposed')
+  equal(controller.getSnapshot().telemetry.outputDevice, 'system-default', 'default output routing is explicit')
+
+  const meter = [...meters.values()][0]
+  meter()
+  equal(controller.getSnapshot().telemetry.inputPeak, 0, 'zero input is measured as silence')
+  advance(NO_INPUT_WARNING_MS + 1)
+  meter()
+  check(controller.getSnapshot().telemetry.silenceDurationMs >= NO_INPUT_WARNING_MS,
+    'continued zero input reaches the visible no-input diagnostic')
+
+  inputAnalyser.samples = [0.1, -0.1, 0.05, -0.05]
+  outputAnalyser.samples = [0.2, -0.2, 0.1, -0.1]
+  meter()
+  closeTo(controller.getSnapshot().telemetry.inputPeak, 0.1, 1e-6, 'nonzero source peak is measured')
+  closeTo(controller.getSnapshot().telemetry.outputPeak, 0.2, 1e-6,
+    'nonzero post-gain peak reaches output telemetry')
+  equal(controller.getSnapshot().telemetry.signalDetected, true, 'nonzero input is classified as detected signal')
+  equal(controller.getSnapshot().telemetry.silenceDurationMs, 0, 'signal clears the no-input timer')
+  equal(controller.getSnapshot().telemetry.outputTooHot, false, 'normal output is not marked too hot')
+  equal(controller.getSnapshot().telemetry.outputClipping, false, 'normal output is not marked clipping')
+
+  const contextCountBeforeGainChange = contexts.length
+  controller.setGain(3.25)
+  equal(controller.getSnapshot().gain, 3.25, 'live gain changes update controller state immediately')
+  equal(contexts.length, contextCountBeforeGainChange, 'live gain changes do not restart the audio context')
+  equal(contexts[0].gain.gain.calls.at(-1), ['target', 3.25, contexts[0].currentTime, 0.008],
+    'live gain changes update the existing GainNode with a short click-free transition')
+  controller.setGain(99)
+  equal(controller.getSnapshot().gain, MAX_MONITOR_GAIN, 'live gain changes remain bounded')
+  controller.setGain(0)
+  equal(controller.getSnapshot().gain, 0, 'zero monitor level intentionally mutes without disabling Live')
+  equal(controller.getSnapshot().state, 'on', 'zero monitor level preserves explicit Live state')
+
+  outputAnalyser.samples = [OUTPUT_TOO_HOT_THRESHOLD, -OUTPUT_TOO_HOT_THRESHOLD]
+  meter()
+  equal(controller.getSnapshot().telemetry.outputTooHot, true, 'high output activates too-hot telemetry')
+  equal(controller.getSnapshot().telemetry.outputClipping, false, 'too-hot output remains distinct from clipping')
+  outputAnalyser.samples = [OUTPUT_CLIPPING_THRESHOLD, -OUTPUT_CLIPPING_THRESHOLD]
+  meter()
+  equal(controller.getSnapshot().telemetry.outputClipping, true, 'near-full-scale output activates clipping telemetry')
 
   const unrelatedSongState = { playing: false, mode: 'instrumental' }
   unrelatedSongState.playing = true
@@ -149,6 +253,9 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   await controller.disable()
   equal(tracks.map((track) => track.stopped), [1, 1], 'disable stops every stream track')
   equal(contexts[0].closes, 1, 'disable closes the context')
+  equal(cancelledMeters.length, 1, 'disable cancels analyser polling')
+  equal(inputAnalyser.disconnected, 1, 'disable disconnects the input analyser')
+  equal(outputAnalyser.disconnected, 1, 'disable disconnects the output analyser')
   equal(controller.getSnapshot().state, 'off', 'disable returns to off')
   tracks[0].dispatchEvent(new Event('ended'))
   mediaDevices.dispatchEvent(new Event('devicechange'))
@@ -161,6 +268,20 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   equal(contexts.length, 2, 're-enable creates a fresh context')
   await controller.disable()
   equal(secondTrack.stopped, 1, 'repeated toggles release each fresh stream')
+}
+
+{
+  const { controller, mediaDevices, contexts } = createHarness()
+  let resolveRequest
+  mediaDevices.responses.push(new Promise((resolve) => { resolveRequest = resolve }))
+  const enabling = controller.enable()
+  await Promise.resolve()
+  contexts[0].state = 'suspended'
+  resolveRequest(new FakeStream())
+  await enabling
+  equal(contexts[0].resumes, 2, 'context is resumed again after a delayed permission response')
+  equal(controller.getSnapshot().state, 'on', 'post-permission context resume reaches on')
+  await controller.disable()
 }
 
 for (const [name, expected] of [['NotAllowedError', 'permission-denied'], ['NotFoundError', 'no-device']]) {
@@ -223,6 +344,19 @@ check(appSource.indexOf('data-testid="mic-monitor-toggle"') < appSource.indexOf(
   'microphone toggle is immediately before the volume control')
 check(appSource.includes('aria-pressed={microphone.state === \'on\'}'), 'toggle exposes its pressed state')
 check(appSource.includes('Wired headphones recommended'), 'toggle exposes headphone safety guidance')
+check(appSource.includes('Monitor gain is independent of song volume'),
+  'UI explains dedicated monitor volume semantics')
+check(appSource.includes('Mic monitor level'), 'UI exposes a dedicated monitor level control')
+check(appSource.includes('Mic live — monitor muted'), 'UI keeps Live explicit at monitor level zero')
+check(appSource.includes('Mic live — no input detected'), 'UI exposes a no-input diagnostic')
+check(appSource.includes('Default output · check Windows if silent'),
+  'UI exposes output mute or wrong-device troubleshooting')
+check(appSource.includes('data-testid="mic-monitor-output"'), 'post-gain output has deterministic UI coverage')
+check(appSource.includes('data-testid="mic-monitor-clipping"'), 'UI exposes a clipping warning')
+check(appSource.includes('data-testid="mic-monitor-level"'), 'monitor level slider has deterministic UI coverage')
+check(appSource.includes('useMicrophoneMonitor()'), 'monitor gain is not coupled to player volume')
+check(!appSource.includes('useMicrophoneMonitor(volume)'), 'muted player volume does not silently mute monitoring')
+check(!monitorSource.includes('localStorage'), 'monitor preference is session-only because no settings convention exists')
 check(mainSource.includes('setPermissionRequestHandler') && mainSource.includes('setPermissionCheckHandler'),
   'Electron installs request and check permission handlers')
 

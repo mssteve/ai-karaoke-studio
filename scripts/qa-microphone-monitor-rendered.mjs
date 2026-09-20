@@ -54,6 +54,34 @@ try {
     selector: '.player-output-controls > .volume:nth-child(2)',
   })
   if (!first.exists || !second.exists) throw new Error('Microphone control is not immediately beside volume.')
+  const level = await sendCommand({
+    action: 'ui',
+    uiAction: 'snapshot',
+    selector: '[data-testid="mic-monitor-level"]',
+  })
+  if (level.value !== '2' || level.min !== '0' || level.max !== '4' || level.step !== '0.05') {
+    throw new Error(`Unexpected microphone level control: ${JSON.stringify(level)}`)
+  }
+  await sendCommand({
+    action: 'ui',
+    uiAction: 'set-value',
+    selector: '[data-testid="mic-monitor-level"]',
+    uiValue: '4',
+  })
+  const maximum = await sendCommand({
+    action: 'ui',
+    uiAction: 'snapshot',
+    selector: '[data-testid="mic-monitor-state"]',
+  })
+  if (maximum.dataset?.monitorGain !== '4.000') {
+    throw new Error(`Maximum microphone level did not update live state: ${JSON.stringify(maximum)}`)
+  }
+  await sendCommand({
+    action: 'ui',
+    uiAction: 'set-value',
+    selector: '[data-testid="mic-monitor-level"]',
+    uiValue: '2',
+  })
   const capture = await sendCommand({ action: 'screenshot' })
   const screenshot = path.join(output, 'microphone-monitor-off.png')
   await copyFile(capture.path, screenshot)
@@ -62,7 +90,7 @@ try {
   if (diagnostics.rendererErrorCount !== 0) {
     throw new Error(`Renderer diagnostics contain ${diagnostics.rendererErrorCount} errors.`)
   }
-  console.log(`PASS rendered microphone monitor: accessible off state, adjacent placement, screenshot ${screenshot}`)
+  console.log(`PASS rendered microphone monitor: accessible 0–4 level, 2x default, adjacent placement, screenshot ${screenshot}`)
 } finally {
   if (child && child.exitCode === null) {
     child.kill()

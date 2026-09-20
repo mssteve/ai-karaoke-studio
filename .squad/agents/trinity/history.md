@@ -64,3 +64,5 @@ Karaoke Studio is a professional Windows karaoke desktop app. Requested by Steve
 - Fresh build passed. Deterministic microphone QA passed 51 checks, rendered CDP QA passed with `scripts/qa-artifacts/microphone-monitor-rendered/microphone-monitor-off.png`, and the unchanged playback/Queue/History runtime passed 8/8 with zero renderer errors. Real wired-device permission, latency, feedback, device-unplug, and 25-cycle soak measurement remain Tank's handoff; no package/release was produced.
 
 📌 Team update (2026-09-19T09:56:19.057-07:00): Tank approved the live microphone source after 25/25 real-device cycles; retain the accessible states, trusted audio-only permission boundary, no-recording contract, and explicit physical-latency/unplug gaps.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): The final independent 0–400% microphone monitor with 200% default, analyser diagnostics, clipping warning, direct graph, and independent music volume is installed and package-approved as 0.3.4. The earlier `playerVolume * 0.25` and fixed 0.35 packages are superseded; Store remains blocked.

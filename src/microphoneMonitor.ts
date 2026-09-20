@@ -11,10 +11,15 @@ export type MicrophoneMonitorErrorCode =
   | 'unknown'
 
 export interface MicrophoneMonitorTelemetry {
+  contextState?: AudioContextState
   contextSampleRate?: number
   baseLatency?: number
   outputLatency?: number
   estimatedOutputLatency?: number
+  outputDevice?: 'system-default' | 'explicit-device' | 'unknown'
+  trackReadyState?: MediaStreamTrackState
+  trackEnabled?: boolean
+  trackMuted?: boolean
   trackSampleRate?: number
   trackChannelCount?: number
   trackLatency?: number
@@ -22,6 +27,14 @@ export interface MicrophoneMonitorTelemetry {
   noiseSuppression?: boolean
   autoGainControl?: boolean
   startToActiveMs?: number
+  inputRms?: number
+  inputPeak?: number
+  outputRms?: number
+  outputPeak?: number
+  signalDetected?: boolean
+  silenceDurationMs?: number
+  outputTooHot?: boolean
+  outputClipping?: boolean
 }
 
 export interface MicrophoneMonitorSnapshot {
@@ -44,15 +57,27 @@ export const MICROPHONE_CONSTRAINTS: MediaStreamConstraints = {
   } as MediaTrackConstraints & { latency: ConstrainDouble },
 }
 
-export const MAX_MONITOR_GAIN = 0.25
+export const MIN_MONITOR_GAIN = 0
+export const DEFAULT_MONITOR_GAIN = 2
+export const MAX_MONITOR_GAIN = 4
+export const MONITOR_GAIN_STEP = 0.05
+export const SIGNAL_THRESHOLD = 0.001
+export const NO_INPUT_WARNING_MS = 1_500
+export const OUTPUT_TOO_HOT_THRESHOLD = 0.85
+export const OUTPUT_CLIPPING_THRESHOLD = 0.98
 
-type MonitorAudioContext = AudioContext & { outputLatency?: number }
+type MonitorAudioContext = AudioContext & {
+  outputLatency?: number
+  sinkId?: string | { type: string }
+}
 
 interface MicrophoneMonitorDependencies {
   isSecureContext: () => boolean
   getMediaDevices: () => MediaDevices | undefined
   createAudioContext: () => MonitorAudioContext
   now: () => number
+  scheduleMeter: (callback: () => void) => number
+  cancelMeter: (handle: number) => void
 }
 
 const defaultDependencies: MicrophoneMonitorDependencies = {
@@ -60,10 +85,8 @@ const defaultDependencies: MicrophoneMonitorDependencies = {
   getMediaDevices: () => navigator.mediaDevices,
   createAudioContext: () => new AudioContext({ latencyHint: 'interactive' }),
   now: () => performance.now(),
-}
-
-export function monitorGainForPlayerVolume(volume: number) {
-  return Math.max(0, Math.min(1, volume)) * MAX_MONITOR_GAIN
+  scheduleMeter: (callback) => window.setInterval(callback, 100),
+  cancelMeter: (handle) => window.clearInterval(handle),
 }
 
 export function classifyMicrophoneError(reason: unknown): {
@@ -101,7 +124,7 @@ export class MicrophoneMonitorController {
   private readonly dependencies: MicrophoneMonitorDependencies
   private snapshot: MicrophoneMonitorSnapshot = {
     state: 'off',
-    gain: monitorGainForPlayerVolume(0.82),
+    gain: DEFAULT_MONITOR_GAIN,
     telemetry: {},
   }
   private listeners = new Set<(snapshot: MicrophoneMonitorSnapshot) => void>()
@@ -110,7 +133,11 @@ export class MicrophoneMonitorController {
   private context?: MonitorAudioContext
   private source?: MediaStreamAudioSourceNode
   private gainNode?: GainNode
+  private inputAnalyser?: AnalyserNode
+  private outputAnalyser?: AnalyserNode
   private mediaDevices?: MediaDevices
+  private meterHandle?: number
+  private meterStartedAt?: number
   private trackEndHandlers = new Map<MediaStreamTrack, () => void>()
   private contextStateHandler?: () => void
   private deviceChangeHandler?: () => void
@@ -128,12 +155,15 @@ export class MicrophoneMonitorController {
     }
   }
 
-  setPlayerVolume(volume: number) {
-    const gain = monitorGainForPlayerVolume(volume)
-    this.update({ gain })
-    if (this.gainNode && this.context) {
-      this.gainNode.gain.setTargetAtTime(gain, this.context.currentTime, 0.015)
+  setGain(value: number) {
+    const gain = clampMonitorGain(value)
+    if (gain === this.snapshot.gain) return
+    const context = this.context
+    const gainNode = this.gainNode
+    if (context && gainNode) {
+      gainNode.gain.setTargetAtTime(gain, context.currentTime, 0.008)
     }
+    this.update({ gain })
   }
 
   async enable() {
@@ -161,6 +191,8 @@ export class MicrophoneMonitorController {
     let stream: MediaStream | undefined
     let source: MediaStreamAudioSourceNode | undefined
     let gainNode: GainNode | undefined
+    let inputAnalyser: AnalyserNode | undefined
+    let outputAnalyser: AnalyserNode | undefined
     try {
       context = this.dependencies.createAudioContext()
       this.context = context
@@ -178,17 +210,29 @@ export class MicrophoneMonitorController {
       }
       const audioTrack = stream.getAudioTracks()[0]
       if (!audioTrack) throw new DOMException('No audio track was returned.', 'NotFoundError')
+      if (context.state === 'suspended') await context.resume()
+      if (context.state !== 'running') {
+        throw new DOMException(`Audio context remained ${context.state}.`, 'InvalidStateError')
+      }
 
       source = context.createMediaStreamSource(stream)
       gainNode = context.createGain()
+      inputAnalyser = context.createAnalyser()
+      outputAnalyser = context.createAnalyser()
+      configureAnalyser(inputAnalyser)
+      configureAnalyser(outputAnalyser)
       gainNode.gain.setValueAtTime(0, context.currentTime)
-      source.connect(gainNode)
-      gainNode.connect(context.destination)
+      source.connect(inputAnalyser)
+      inputAnalyser.connect(gainNode)
+      gainNode.connect(outputAnalyser)
+      outputAnalyser.connect(context.destination)
       gainNode.gain.linearRampToValueAtTime(this.snapshot.gain, context.currentTime + 0.015)
 
       this.stream = stream
       this.source = source
       this.gainNode = gainNode
+      this.inputAnalyser = inputAnalyser
+      this.outputAnalyser = outputAnalyser
       this.mediaDevices = mediaDevices
       this.installLifecycleHandlers()
 
@@ -200,10 +244,15 @@ export class MicrophoneMonitorController {
         error: undefined,
         errorCode: undefined,
         telemetry: {
+          contextState: context.state,
           contextSampleRate: finiteNumber(context.sampleRate),
           baseLatency,
           outputLatency,
           estimatedOutputLatency: sumDefined(baseLatency, outputLatency),
+          outputDevice: classifyOutputDevice(context.sinkId),
+          trackReadyState: audioTrack.readyState,
+          trackEnabled: audioTrack.enabled,
+          trackMuted: audioTrack.muted,
           trackSampleRate: finiteNumber(settings.sampleRate),
           trackChannelCount: finiteNumber(settings.channelCount),
           trackLatency: finiteNumber(settings.latency),
@@ -211,11 +260,20 @@ export class MicrophoneMonitorController {
           noiseSuppression: booleanSetting(settings.noiseSuppression),
           autoGainControl: booleanSetting(settings.autoGainControl),
           startToActiveMs: Math.max(0, this.dependencies.now() - startedAt),
+          inputRms: 0,
+          inputPeak: 0,
+          outputRms: 0,
+          outputPeak: 0,
+          signalDetected: false,
+          silenceDurationMs: 0,
+          outputTooHot: false,
+          outputClipping: false,
         },
       })
+      this.startMeter()
     } catch (reason) {
       if (this.context === context) this.context = undefined
-      await this.releaseLocal(stream, context, source, gainNode)
+      await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser)
       if (operation !== this.generation) return
       const classified = classifyMicrophoneError(reason)
       this.update({
@@ -278,6 +336,9 @@ export class MicrophoneMonitorController {
     const context = this.context
     const source = this.source
     const gainNode = this.gainNode
+    const inputAnalyser = this.inputAnalyser
+    const outputAnalyser = this.outputAnalyser
+    if (this.meterHandle !== undefined) this.dependencies.cancelMeter(this.meterHandle)
     if (context && this.contextStateHandler) {
       context.removeEventListener('statechange', this.contextStateHandler)
     }
@@ -291,11 +352,15 @@ export class MicrophoneMonitorController {
     this.context = undefined
     this.source = undefined
     this.gainNode = undefined
+    this.inputAnalyser = undefined
+    this.outputAnalyser = undefined
     this.mediaDevices = undefined
+    this.meterHandle = undefined
+    this.meterStartedAt = undefined
     this.contextStateHandler = undefined
     this.deviceChangeHandler = undefined
     this.trackEndHandlers.clear()
-    await this.releaseLocal(stream, context, source, gainNode)
+    await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser)
   }
 
   private async releaseLocal(
@@ -303,12 +368,16 @@ export class MicrophoneMonitorController {
     context?: MonitorAudioContext,
     source?: MediaStreamAudioSourceNode,
     gainNode?: GainNode,
+    inputAnalyser?: AnalyserNode,
+    outputAnalyser?: AnalyserNode,
   ) {
     try {
       if (gainNode && context) gainNode.gain.setValueAtTime(0, context.currentTime)
     } catch {}
     try { source?.disconnect() } catch {}
+    try { inputAnalyser?.disconnect() } catch {}
     try { gainNode?.disconnect() } catch {}
+    try { outputAnalyser?.disconnect() } catch {}
     for (const track of stream?.getTracks() ?? []) {
       try { track.stop() } catch {}
     }
@@ -320,6 +389,71 @@ export class MicrophoneMonitorController {
   private update(next: Partial<MicrophoneMonitorSnapshot>) {
     this.snapshot = { ...this.snapshot, ...next }
     for (const listener of this.listeners) listener(this.snapshot)
+  }
+
+  private startMeter() {
+    if (!this.inputAnalyser || !this.outputAnalyser) return
+    this.meterStartedAt = this.dependencies.now()
+    const input = new Float32Array(this.inputAnalyser.fftSize)
+    const output = new Float32Array(this.outputAnalyser.fftSize)
+    this.meterHandle = this.dependencies.scheduleMeter(() => {
+      if (this.snapshot.state !== 'on' || !this.inputAnalyser || !this.outputAnalyser) return
+      this.inputAnalyser.getFloatTimeDomainData(input)
+      this.outputAnalyser.getFloatTimeDomainData(output)
+      const inputLevel = signalLevel(input)
+      const outputLevel = signalLevel(output)
+      const signalDetected = inputLevel.peak >= SIGNAL_THRESHOLD
+      const track = this.stream?.getAudioTracks()[0]
+      this.update({
+        telemetry: {
+          ...this.snapshot.telemetry,
+          contextState: this.context?.state,
+          trackReadyState: track?.readyState,
+          trackEnabled: track?.enabled,
+          trackMuted: track?.muted,
+          inputRms: inputLevel.rms,
+          inputPeak: inputLevel.peak,
+          outputRms: outputLevel.rms,
+          outputPeak: outputLevel.peak,
+          signalDetected,
+          outputTooHot: outputLevel.peak >= OUTPUT_TOO_HOT_THRESHOLD,
+          outputClipping: outputLevel.peak >= OUTPUT_CLIPPING_THRESHOLD,
+          silenceDurationMs: signalDetected
+            ? 0
+            : Math.max(0, this.dependencies.now() - (this.meterStartedAt ?? this.dependencies.now())),
+        },
+      })
+      if (signalDetected) this.meterStartedAt = this.dependencies.now()
+    })
+  }
+
+}
+
+export function clampMonitorGain(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_MONITOR_GAIN
+  return Math.min(MAX_MONITOR_GAIN, Math.max(MIN_MONITOR_GAIN, value))
+}
+
+export function monitorGainDecibels(gain: number) {
+  return gain > 0 ? 20 * Math.log10(gain) : Number.NEGATIVE_INFINITY
+}
+
+function configureAnalyser(analyser: AnalyserNode) {
+  analyser.fftSize = 256
+  analyser.smoothingTimeConstant = 0.35
+}
+
+export function signalLevel(samples: Float32Array) {
+  let sumSquares = 0
+  let peak = 0
+  for (const sample of samples) {
+    const magnitude = Math.abs(sample)
+    sumSquares += sample * sample
+    peak = Math.max(peak, magnitude)
+  }
+  return {
+    rms: samples.length ? Math.sqrt(sumSquares / samples.length) : 0,
+    peak,
   }
 }
 
@@ -334,4 +468,11 @@ function sumDefined(first?: number, second?: number) {
 
 function booleanSetting(value: unknown) {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function classifyOutputDevice(sinkId: MonitorAudioContext['sinkId']) {
+  if (sinkId === '') return 'system-default'
+  if (typeof sinkId === 'string') return 'explicit-device'
+  if (sinkId && typeof sinkId === 'object') return 'explicit-device'
+  return 'unknown'
 }

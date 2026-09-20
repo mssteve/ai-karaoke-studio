@@ -106,3 +106,88 @@ Karaoke Studio targets Windows and later Microsoft Store distribution. Requested
 📌 Team update (2026-09-19T02:52:27.047-07:00): Switch's preliminary 0.3.3 hashes are superseded by Tank's frozen approval: NSIS `04d9c061...`, APPX `fe78e626...`, provenance `fecd4474...`. The local initial commit remains pending; GitHub push is blocked by noninteractive `mssteve` authentication.
 
 📌 Team update (2026-09-19T09:56:19.057-07:00): `feature/live-mic-monitor` is source-approved but explicitly unpackageable in this consolidation; any future release must preserve APPX microphone capability verification and run the full Windows release workflow.
+
+- 2026-09-20 Karaoke Studio 0.3.4 release candidate: verified clean
+  `feature/live-mic-monitor` at `e54d5ee97e96010c58e890c0aa68737ee9799998`,
+  selected monotonic package 0.3.4 / APPX 0.3.4.0, and ran the exclusive canonical
+  workflow. NSIS and APPX were built sequentially from one clean build with publishing
+  disabled. Source provenance covers 82 files with aggregate
+  `8495bf0c21d4dbb0aff02f2d8a2620a0227e0a2a3715fc8aaa468cd645b64b81`
+  and zero missing, extra, or mismatched entries.
+- Final candidate hashes: NSIS
+  `e9f4775c3c4f5cbb99012ac21714f1b11abc0636f18cda6ec4c326f14c61368f`;
+  APPX `c61596c29a0306bb83b65311dcfb6682a28ee9e8b82826b9292ffc1252778a37`;
+  provenance `aace0887a8b70aed429a80d1f4c0f3e51a6ee2acc9ec453c4037c34be9bd0b5f`.
+  Nine fail-closed scan scopes checked 22,958 files / 8,141,095,372 bytes with zero
+  findings.
+- Package-backed QA passed microphone 51/51, installed default-device 25/25 at safe
+  low gain, rendered microphone UI, permission/device-ended recovery evidence,
+  processing/retry 6/6 with 113 assertions, rendered processing 10/10, timing 33/33,
+  Queue/History 8/8, Demucs 4/4, and automation isolation 2/2. The package preserves
+  sandbox/context isolation, default-disabled private automation, direct renderer-only
+  Web Audio monitoring, and no microphone recording/persistence/network path.
+- APPX is x64, version 0.3.4.0, with exactly `runFullTrust` and `microphone` capabilities
+  plus all required assets. Both artifacts are unsigned; placeholder identity
+  `KaraokeStudio` / publisher `CN=ms` blocks Store submission. No signing, submission,
+  merge, push, or commit occurred.
+
+📌 Team update (2026-09-20T08:12:45-07:00): Product source changed during the
+inaudible-microphone investigation. The current 0.3.4 EXE, APPX, hashes, provenance,
+and package-backed evidence are invalid and must not be approved or reused. The user
+explicitly prohibited packaging/release for this revision.
+
+- 2026-09-20 corrected 0.3.4 replacement candidate: after Tank approved the audibility
+  source revision, reran build, microphone 74/74, rendered microphone validation, and
+  Queue/History 8/8, then executed the exclusive canonical release workflow. The prior
+  `f6662f...` ASAR was replaced by `7965dd...`. New hashes are NSIS
+  `78c5ded12345deae386d60ce9a65133887aa2ca2e608d2d90e6423ad6537e31c`,
+  APPX `bf0b4b728487ab64d843690a1375e7ddb490840c2f4684ccfe128f894ccafd80`,
+  and provenance `89d386cea9259671afe33e881db361c578924a82cb33c4fd30f4d76b518d0f76`.
+- Provenance covers 83 inputs with aggregate
+  `39510f9f2cf10349b079eb0824d571e67667ddff1575795a777c4ca7c5985515`
+  and zero missing/extra/mismatched files. Nine secret-scan scopes checked 22,958
+  files / 8,141,120,026 bytes with zero findings.
+- Package-backed microphone evidence captured a running 48 kHz context, live enabled
+  unmuted track, default sink, unmuted/audible web contents, dedicated gain 0.35, and
+  nonzero pre/post signal at song volume zero. Music simultaneously remained playing
+  while the microphone graph reached the destination. Twenty-five toggle cycles,
+  reload cleanup, close cleanup, permission/device-ended simulations, and zero renderer
+  errors passed. This is objective path evidence only, not a physical-audibility claim.
+- Package regressions passed Queue/History 8/8, processing failure/retry 6/6 with 113
+  assertions, rendered processing 10/10, timing 33/33, Demucs 4/4, default-off
+  automation, QA-hook denial, and approved private-source integrity with zero
+  differences. APPX 0.3.4.0 is x64 with exactly `runFullTrust` and `microphone`.
+- Candidate remains **HOLD FOR TANK REVIEW / BLOCK STORE SUBMISSION**. It was not
+  signed, submitted, committed, pushed, or installed for use. Placeholder Partner
+  Center identity/publisher and unsigned artifacts remain blockers.
+
+- 2026-09-20 Trinity invalidation notice: do not package, install, release, approve, or
+  reuse any 0.3.4 EXE, APPX, ASAR, hash, provenance, or package-backed evidence. The
+  fixed 0.35 monitor was replaced by a session-only adjustable 0–4 control with a 2.0
+  default, live GainNode updates, mute-at-zero, independent song volume, and clipping
+  diagnostics. Current work is source/QA only under Steve's explicit no-release order.
+
+- 2026-09-20 final adjustable-monitor 0.3.4 release: after Tank's fresh source approval,
+  ran the exclusive canonical workflow and replaced every invalid 0.3.4 candidate. The
+  final NSIS SHA-256 is
+  `c02065bca43d6d3f41a56760a9a38ee59b9c6329ab24b57a27c12fa1554ee59e`;
+  final APPX SHA-256 is
+  `5bab9405d93bb2a8773948926a202ee30d09e9c1598399d6dcd4c845297a1551`;
+  provenance SHA-256 is
+  `45bb836bfa8fbbfb7118d3404225066fa5d173e0f9be8d4cf7339ea85c378d00`.
+  Provenance recorded 83 source files, aggregate
+  `dac4a71eab0027b4ccc0c6d86c45897bfe548b3b02a089e5747585e2c94d1917`,
+  zero source differences, and zero secret findings across nine scopes.
+- Exact APPX/staging comparison matched 553/553 files with no missing, extra, or
+  mismatched payload and common ASAR
+  `92d31eadb3ad5a7fffdb6816de0aabf6a9b43863a1e595da2dbf80a4baef0073`.
+  Tank approved package QA: microphone 95/95 and real 0/1/2/4 ratios, Queue 8/8,
+  retry 6/6/113, rendered processing 10/10, timing 33/33, Demucs 4/4, automation
+  isolation 3/3, and private sources 16/16 unchanged. APPX is x64 0.3.4.0 with exactly
+  `runFullTrust` and `microphone`.
+- Final verdict:
+  `scripts/qa-artifacts/release-0.3.4-final-approved/release-verdict.json`. Both
+  artifacts are unsigned and `KaraokeStudio` / `CN=ms` remains a Store blocker. No
+  signing, submission, user installation, commit, merge, or push occurred.
+
+📌 Team update (2026-09-20T10:27:28.056-07:00): The final approved 0.3.4 package was installed successfully with library, playlists, and processed data preserved. Live music+mic ratio was approximately 2 and cleanup passed; normal app PID 26988 remains running with Mic OFF and automation disabled. Final provenance is `45bb836b...`; Store remains blocked.
