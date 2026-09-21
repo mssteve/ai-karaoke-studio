@@ -5,7 +5,8 @@
 .squad/orchestration-log/** merge=union
 
 # Normalize source and configuration text while preserving Windows script endings.
-* text=auto
+# Protected release inputs must explicitly opt into text or binary handling.
+* text=auto -eol -filter -ident -working-tree-encoding
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
@@ -13,31 +14,34 @@
 *.cts text eol=lf
 *.html text eol=lf
 *.js text eol=lf
-*.json text eol=lf
+*.json text eol=lf -filter -ident -working-tree-encoding
 *.md text eol=lf
 *.mjs text eol=lf
+*.svg text eol=lf
 *.ts text eol=lf
 *.tsx text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+.gitattributes text eol=lf -filter -ident -working-tree-encoding
+.gitignore text eol=lf -filter -ident -working-tree-encoding
 
 # Keep media, application, archive, and signing artifacts binary.
-*.appx -text
-*.dll -text
-*.exe -text
-*.gif -text
-*.ico -text
-*.jpeg -text
-*.jpg -text
-*.mp3 -text
-*.mp4 -text
-*.msix -text
-*.onnx -text
-*.p12 -text
-*.pem -text
-*.pfx -text
-*.png -text
-*.safetensors -text
-*.wav -text
-*.webp -text
-*.zip -text
+*.appx -text -eol
+*.dll -text -eol
+*.exe -text -eol
+*.gif -text -eol
+*.ico -text -eol
+*.jpeg -text -eol
+*.jpg -text -eol
+*.mp3 -text -eol
+*.mp4 -text -eol
+*.msix -text -eol
+*.onnx -text -eol
+*.p12 -text -eol
+*.pem -text -eol
+*.pfx -text -eol
+*.png -text -eol
+*.safetensors -text -eol
+*.wav -text -eol
+*.webp -text -eol
+*.zip -text -eol

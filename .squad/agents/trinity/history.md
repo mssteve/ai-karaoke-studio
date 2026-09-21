@@ -66,3 +66,16 @@ Karaoke Studio is a professional Windows karaoke desktop app. Requested by Steve
 📌 Team update (2026-09-19T09:56:19.057-07:00): Tank approved the live microphone source after 25/25 real-device cycles; retain the accessible states, trusted audio-only permission boundary, no-recording contract, and explicit physical-latency/unplug gaps.
 
 📌 Team update (2026-09-20T10:27:28.056-07:00): The final independent 0–400% microphone monitor with 200% default, analyser diagnostics, clipping warning, direct graph, and independent music volume is installed and package-approved as 0.3.4. The earlier `playerVolume * 0.25` and fixed 0.35 packages are superseded; Store remains blocked.
+
+- 2026-09-20 release TOCTOU revision: reproduced a real renderer build consuming a
+  temporary `src/main.tsx` sentinel while original bytes and timestamp were restored.
+  Replaced the mutable-worktree build boundary with a Git-object-materialized,
+  read-only `.release-source-*` canonical tree tied to the approved target commit.
+  TypeScript, Vite, and electron-builder now run only from that tree; staged
+  path/type/hash aggregates are checked before and after build/package, live source is
+  checked separately, forced staged mutation rejects before promotion, and owned source
+  staging is cleaned on success or failure. Historical rejected approval/evidence remain
+  deleted forward-only. Validation passed deploy QA 167/167, real TOCTOU regressions
+  2/2, ordinary build, Demucs 14/14 and 18/18, secret scan 33 files / 628,055 bytes /
+  zero findings, syntax/diff, and two exit-3 dry-runs preserving 38,073 inventoried
+  entries. No release or repository-history operation was performed.

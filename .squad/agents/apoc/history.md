@@ -49,3 +49,58 @@ Karaoke Studio needs deterministic four-mode playback, timed lyrics, and FIFO qu
 📌 Team update (2026-09-19T02:52:27.047-07:00): Tank approved Apoc's initialized Demucs inference boundary after real Music acceptance at 16/16 files and 64/64 stems. The fix is included in the approved frozen 0.3.3 package; Store submission remains blocked.
 
 📌 Team update (2026-09-20T10:27:28.056-07:00): The final installed and package-approved 0.3.4 retained Demucs 4/4 and processed-data preservation. Store submission remains blocked; no commit or push occurred.
+
+### 2026-09-20: Protected release-source attribute hardening
+
+- Reproduced Tank's remaining bypass before editing: `.git/info/attributes` assigned
+  `src/main.ts filter=unspecified`, the clean driver emitted `HEAD:src/main.ts`, and
+  attacker-controlled checkout bytes produced `git diff --quiet` exit 0 while
+  `snapshotProtectedSources()` accepted the canonical blob hash.
+- Replaced attribute-aware worktree cleanliness trust with direct physical-byte
+  validation for every protected source, approval, evidence, reviewer-registry, and
+  `.gitattributes` file. Canonical blobs are read by object ID; working bytes are read
+  directly without `hash-object --path` or clean filters and may differ only by the
+  committed explicit `eol=crlf` conversion.
+- The committed policy now requires `-filter`, `-ident`, and
+  `-working-tree-encoding`, plus explicit text/EOL or binary state. Effective
+  attributes must match it. Attribute macros and Git repository/attribute environment
+  redirection fail closed; info/global/system/local precedence, clean/smudge/process
+  drivers, sentinel-looking values, and configured-driver ambiguity are covered.
+- Exact component case, regular-file type, containment, symlink/reparse rejection,
+  hardlink rejection, and stable device/inode/size/mtime identity are shared across
+  protected source and approval/evidence reads.
+- Validation passed focused attribute/source QA 28/28, full deploy QA 165/165, build,
+  syntax/diff, Demucs 14/14 and 18/18, and built-output secret scan
+  33 files / 628055 bytes / zero findings. Default and stale `--zip` dry-runs exited 3
+  and preserved 1662 inventoried entries exactly.
+- Historical approval commit `48cfb8f` and both rejected blobs remain intact in Git;
+  the files remain deleted only forward. No approval, package, ZIP, install, commit,
+  push, merge, tag, reset, amend, history rewrite, or ignored-artifact deletion was
+  performed.
+
+### 2026-09-20: Release approval and capability integrity revision
+
+- Replaced working-tree approval trust with a non-circular two-commit protocol: the
+  approval commit has exactly one parent (the reviewed target), changes only canonical
+  approval/Tank record paths, and leaves all protected packaged source content identical
+  to that parent.
+- Schema-2 approvals now bind target commit, branch, package/APPX version, protected
+  aggregate/count, and structured Tank evidence hashes/status/counts/timestamps. Approval
+  and evidence must be exact clean committed regular-file blobs at canonical contained
+  paths; path escapes, ADS, case aliases, symlink/reparse chains, and detectable hardlinks
+  fail closed.
+- Reviewer provenance is bound to repository-local reviewer identity/role/name/email,
+  matching approval commit author and committer, explicit reviewer trailers, Tank-owned
+  paths, and a source author distinct from the reviewer.
+- Replaced reusable inherited tokens with an atomically consumed 256-bit capability bound
+  to deploy/child PID start identities, actual parentage, approval HEAD, source, version,
+  operation, and expiry. Replay and concurrent consumption fail.
+- The boundary prevents accidental/script-level bypass and stale replay; it cannot protect
+  against malicious same-user code able to rewrite config, code, processes, or Git history.
+- Expanded Windows deploy QA from 61 to 82 cases. No approval, commit, package, install,
+  release artifact, ZIP, push, or merge was created or performed.
+- Final validation passed build, deploy QA 82/82, deterministic Demucs boundary 14
+  checks, and real Demucs runtime 18 checks. Real default dry-run and stale `--zip`
+  each exited 3 against the intentionally dirty revision; all 1,398 inventoried
+  release/ZIP/lock/install/user-data files remained byte- and timestamp-identical, and
+  no deploy lock, release lock, or capability remained.

@@ -12,29 +12,71 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
-import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   assertSecretScansClean,
   scanAsar,
   scanDirectory,
 } from './package-secret-scan.mjs'
+<<<<<<< Updated upstream
+=======
+import {
+  consumeReleaseCapability,
+} from './release-operation-lock.mjs'
+import {
+  snapshotProtectedSources,
+  validateApproval,
+} from './release-artifact-verification.mjs'
+import {
+  materializeCanonicalSource,
+  installIsolatedDependencies,
+  lockIsolatedDependencies,
+  removeCanonicalStage,
+  snapshotCanonicalStage,
+  snapshotIsolatedDependencies,
+} from './release-source-staging.mjs'
+>>>>>>> Stashed changes
 
-const require = createRequire(import.meta.url)
-const asar = require('@electron/asar')
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+<<<<<<< Updated upstream
 const releaseDir = path.join(root, 'release')
 const lockPath = path.join(root, '.release.lock')
+=======
+const configuredSourceDir = process.env.KARAOKE_RELEASE_SOURCE_DIR
+const sourceDir = configuredSourceDir ? path.resolve(configuredSourceDir) : undefined
+const configuredReleaseDir = process.env.KARAOKE_RELEASE_DIR
+const releaseDir = configuredReleaseDir
+  ? path.resolve(configuredReleaseDir)
+  : path.join(root, 'release')
+if (configuredReleaseDir
+  && (path.dirname(releaseDir) !== root
+    || !path.basename(releaseDir).startsWith('.release-staging-'))) {
+  throw new Error('KARAOKE_RELEASE_DIR must be an owned staging directory directly under the repository root.')
+}
+>>>>>>> Stashed changes
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const approvalArgument = process.argv.find((value) => value.startsWith('--approval='))
 const approvalPath = approvalArgument
   ? path.resolve(root, approvalArgument.slice('--approval='.length))
   : undefined
+<<<<<<< Updated upstream
 let lock
+=======
+const ALLOWED_STAGE_OUTPUTS = [
+  'dist',
+  'dist-electron',
+  'src/types.js',
+  'src/types.js.map',
+  'tsconfig.app.tsbuildinfo',
+  'tsconfig.node.tsbuildinfo',
+  '.release-dependency-cache',
+  '.release-runtime',
+]
+>>>>>>> Stashed changes
 
-function run(command, args) {
+function run(command, args, cwd = root, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, stdio: 'inherit', windowsHide: true })
+    const child = spawn(command, args, { cwd, env, stdio: 'inherit', windowsHide: true })
     child.on('error', reject)
     child.on('close', (code) => code === 0
       ? resolve()
@@ -42,10 +84,10 @@ function run(command, args) {
   })
 }
 
-function runCaptured(command, args) {
+function runCaptured(command, args, cwd = root) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: root,
+      cwd,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -138,14 +180,14 @@ function compareSnapshots(before, after) {
   return { missing, extra, mismatched }
 }
 
-async function collectBuildOutputs(relativeRoot) {
+async function collectBuildOutputs(buildRoot, relativeRoot) {
   const outputs = {}
   async function walk(relative) {
-    const absolute = path.join(root, relative)
+    const absolute = path.join(buildRoot, relative)
     for (const entry of await readdir(absolute, { withFileTypes: true })) {
       const child = path.join(relative, entry.name)
       if (entry.isDirectory()) await walk(child)
-      else outputs[child.replaceAll('\\', '/')] = await hashFile(path.join(root, child))
+      else outputs[child.replaceAll('\\', '/')] = await hashFile(path.join(buildRoot, child))
     }
   }
   await walk(relativeRoot)
@@ -265,7 +307,7 @@ async function scanStagingTree(appDir, label) {
 
 async function verifyPackagedDemucs(appDir, label) {
   const evidenceDir = path.join(releaseDir, 'runtime-evidence', label)
-  const verificationScript = path.join(root, 'scripts', 'verify-packaged-demucs.mjs')
+  const verificationScript = path.join(sourceDir, 'scripts', 'verify-packaged-demucs.mjs')
   const { stdout } = await runCaptured(process.execPath, [verificationScript, appDir, evidenceDir])
   const result = JSON.parse(stdout.trim().split(/\r?\n/).at(-1))
   return {
@@ -347,31 +389,136 @@ async function main() {
       throw new Error('Release approval evidence must be APPROVE with every reported gate passing.')
     }
   }
+<<<<<<< Updated upstream
   const before = await snapshotSources()
   await rm(releaseDir, { recursive: true, force: true })
   await mkdir(releaseDir, { recursive: true })
-
-  if (process.platform === 'win32') {
-    await run(process.env.ComSpec, ['/d', '/s', '/c', 'npm run build'])
-  } else {
-    await run('npm', ['run', 'build'])
+=======
+  if (!capability) throw new Error('Release capability was not consumed.')
+  delete process.env.KARAOKE_RELEASE_CAPABILITY_PATH
+  delete process.env.KARAOKE_RELEASE_CAPABILITY_NONCE
+  delete process.env.KARAOKE_RELEASE_LOCK_TOKEN
+  if (!sourceDir || path.dirname(sourceDir) !== root
+    || !path.basename(sourceDir).startsWith('.release-source-')) {
+    throw new Error(
+      'KARAOKE_RELEASE_SOURCE_DIR must be an owned staging directory directly under the repository root.',
+    )
   }
-  const automationModule = await import(`${new URL('../dist-electron/automation.js', import.meta.url).href}?release=${Date.now()}`)
-  verifyAutomationModule(automationModule)
+  const approvalResult = await validateApproval(root, approvalPath, {
+    expectedSource: before,
+    expectedBranch: branch,
+    expectedHead: head,
+  })
+  const approval = approvalResult.approval
+  let canonicalStage
+  let isolatedDependencies
+  let asar
+  try {
+    canonicalStage = await materializeCanonicalSource({
+      repositoryRoot: root,
+      commit: approvalResult.targetCommit,
+      stageRoot: sourceDir,
+    })
+    const fullStagedBefore = await snapshotCanonicalStage(sourceDir, canonicalStage.files)
+    const approvedStagedBefore = await snapshotCanonicalStage(
+      sourceDir,
+      approvalResult.source.files,
+      { allowedGenerated: canonicalStage.files
+        .filter((entry) => !approvalResult.source.files.some((source) => source.path === entry.path))
+        .map((entry) => entry.path) },
+    )
+    if (approvedStagedBefore.sha256 !== approvalResult.source.sha256) {
+      throw new Error('Canonical staging source does not match the approved source aggregate.')
+    }
+    const stagedPackageJson = JSON.parse(await readFile(path.join(sourceDir, 'package.json'), 'utf8'))
+    if (JSON.stringify(stagedPackageJson) !== JSON.stringify(packageJson)) {
+      throw new Error('Staged package metadata differs from the approval checkout.')
+    }
+    await rm(releaseDir, { recursive: true, force: true })
+    await mkdir(releaseDir, { recursive: true })
+>>>>>>> Stashed changes
 
-  const expected = {
-    ...await collectBuildOutputs('dist'),
-  }
+    isolatedDependencies = await installIsolatedDependencies(sourceDir)
+    const dependencySnapshot = isolatedDependencies.dependencies
+    await lockIsolatedDependencies(isolatedDependencies.root)
+    asar = isolatedDependencies.require('@electron/asar')
+    const cleanScript = path.join(sourceDir, 'scripts', 'clean.mjs')
+    const tsc = path.join(sourceDir, isolatedDependencies.tools.typescript.path)
+    const vite = path.join(sourceDir, isolatedDependencies.tools.vite.path)
+    const builder = path.join(sourceDir, isolatedDependencies.tools.electronBuilder.path)
+    const buildFromIsolatedDependencies = async () => {
+      await run(process.execPath, [cleanScript], sourceDir, isolatedDependencies.env)
+      await run(process.execPath, [tsc, '-b'], sourceDir, isolatedDependencies.env)
+      await run(process.execPath, [
+        vite, 'build', '--configLoader', 'runner',
+      ], sourceDir, isolatedDependencies.env)
+      await run(process.execPath, [
+        tsc, '-p', 'tsconfig.electron.json',
+      ], sourceDir, isolatedDependencies.env)
+    }
+    await buildFromIsolatedDependencies()
+
+    const cachePrimeDir = path.join(sourceDir, '.release-cache-prime')
+    for (const target of ['nsis', 'appx']) {
+      await run(process.execPath, [
+        builder,
+        '--win',
+        target,
+        '--x64',
+        '--publish',
+        'never',
+        '--config.directories.output',
+        cachePrimeDir,
+      ], sourceDir, isolatedDependencies.env)
+    }
+    await rm(cachePrimeDir, { recursive: true, force: true })
+    await snapshotIsolatedDependencies(isolatedDependencies.root, dependencySnapshot)
+    const dependencyCacheSnapshot = await snapshotIsolatedDependencies(
+      isolatedDependencies.cacheRoot,
+    )
+    await lockIsolatedDependencies(undefined, isolatedDependencies.cacheRoot)
+    await buildFromIsolatedDependencies()
+    const stagedAfterBuild = await snapshotCanonicalStage(
+      sourceDir,
+      canonicalStage.files,
+      { allowedGenerated: ALLOWED_STAGE_OUTPUTS },
+    )
+    const sourceComparison = compareSnapshots(fullStagedBefore, stagedAfterBuild)
+    if (sourceComparison.missing.length
+      || sourceComparison.extra.length
+      || sourceComparison.mismatched.length) {
+      throw new Error('Canonical staged source changed during build; artifacts were rejected.')
+    }
+    const automationUrl = pathToFileURL(path.join(sourceDir, 'dist-electron', 'automation.js'))
+    const automationModule = await import(`${automationUrl.href}?release=${Date.now()}`)
+    verifyAutomationModule(automationModule)
+
+    const expected = {
+      ...await collectBuildOutputs(sourceDir, 'dist'),
+    }
   for (const relative of [
     'dist-electron/main.js',
     'dist-electron/preload.cjs',
     'dist-electron/automation.js',
   ]) {
-    expected[relative] = await hashFile(path.join(root, relative))
+    expected[relative] = await hashFile(path.join(sourceDir, relative))
   }
 
+<<<<<<< Updated upstream
   const builder = require.resolve('electron-builder/out/cli/cli.js')
   await run(process.execPath, [builder, '--win', 'nsis', '--x64', '--publish', 'never'])
+=======
+  await run(process.execPath, [
+    builder,
+    '--win',
+    'nsis',
+    '--x64',
+    '--publish',
+    'never',
+    '--config.directories.output',
+    releaseDir,
+    ], sourceDir, isolatedDependencies.env)
+>>>>>>> Stashed changes
   const unpackedApp = path.join(releaseDir, 'win-unpacked')
   const unpackedAsar = path.join(releaseDir, 'win-unpacked', 'resources', 'app.asar')
   const nsisVerification = await verifyAsar(unpackedAsar, expected, 'NSIS staging app.asar')
@@ -380,17 +527,46 @@ async function main() {
   const exePath = path.join(releaseDir, `Karaoke Studio-Setup-${packageJson.version}.exe`)
   const nsisInstalledDemucsRuntime = await verifyNsisInstaller(exePath)
 
+<<<<<<< Updated upstream
   await run(process.execPath, [builder, '--win', 'appx', '--x64', '--publish', 'never'])
+=======
+  await run(process.execPath, [
+    builder,
+    '--win',
+    'appx',
+    '--x64',
+    '--publish',
+    'never',
+    '--config.directories.output',
+    releaseDir,
+    ], sourceDir, isolatedDependencies.env)
+>>>>>>> Stashed changes
   const appxStagingDemucsRuntime = await verifyPackagedDemucs(unpackedApp, 'appx-staging')
   const appxStagingSecretScans = await scanStagingTree(unpackedApp, 'APPX staging')
 
-  const after = await snapshotSources()
-  const sourceComparison = compareSnapshots(before, after)
-  if (sourceComparison.missing.length
-    || sourceComparison.extra.length
-    || sourceComparison.mismatched.length) {
-    throw new Error('Release inputs changed while packaging; artifacts were rejected.')
-  }
+    const stagedAfterPackaging = await snapshotCanonicalStage(
+      sourceDir,
+      canonicalStage.files,
+      { allowedGenerated: ALLOWED_STAGE_OUTPUTS },
+    )
+    await snapshotIsolatedDependencies(isolatedDependencies.root, dependencySnapshot)
+    await snapshotIsolatedDependencies(
+      isolatedDependencies.cacheRoot,
+      dependencyCacheSnapshot,
+    )
+    const packageSourceComparison = compareSnapshots(fullStagedBefore, stagedAfterPackaging)
+    if (packageSourceComparison.missing.length
+      || packageSourceComparison.extra.length
+      || packageSourceComparison.mismatched.length) {
+      throw new Error('Canonical staged source changed while packaging; artifacts were rejected.')
+    }
+    const liveAfter = await snapshotSources()
+    const liveSourceComparison = compareSnapshots(before, liveAfter)
+    if (liveSourceComparison.missing.length
+      || liveSourceComparison.extra.length
+      || liveSourceComparison.mismatched.length) {
+      throw new Error('Live protected source changed while packaging; artifacts were rejected.')
+    }
 
   const appxStagingVerification = await verifyAsar(unpackedAsar, expected, 'APPX staging app.asar')
   const appxPath = path.join(releaseDir, `Karaoke Studio-Setup-${packageJson.version}.appx`)
@@ -424,6 +600,17 @@ async function main() {
       sha256: await hashFile(artifactPath),
     })
   }
+<<<<<<< Updated upstream
+=======
+  const finalApprovalResult = await validateApproval(root, approvalPath, {
+    expectedSource: before,
+    expectedBranch: branch,
+    expectedHead: head,
+  })
+  if (finalApprovalResult.sha256 !== approvalResult.sha256) {
+    throw new Error('Reviewer approval evidence changed during release.')
+  }
+>>>>>>> Stashed changes
   const hashPath = path.join(releaseDir, 'SHA256SUMS.txt')
   await writeFile(hashPath, `${artifacts.map((item) => `${item.sha256}  ${path.basename(item.path)}`).join('\n')}\n`)
 
@@ -450,7 +637,33 @@ async function main() {
       oneBuildForBothTargets: true,
       targetsBuiltSequentially: ['nsis', 'appx'],
       sourceUnchangedDuringRelease: true,
-      sourceComparison,
+      sourceComparison: packageSourceComparison,
+      liveSourceComparison,
+      canonicalStaging: {
+        commit: canonicalStage.commit,
+        sha256: approvedStagedBefore.sha256,
+        fileCount: approvedStagedBefore.files.length,
+        fullTreeSha256: fullStagedBefore.sha256,
+        fullTreeFileCount: canonicalStage.files.length,
+        dependencyMode: canonicalStage.dependencyMode,
+        dependencies: {
+          root: 'node_modules',
+          fileCount: dependencySnapshot.fileCount,
+          sha256: dependencySnapshot.sha256,
+          cacheFileCount: dependencyCacheSnapshot.fileCount,
+          cacheSha256: dependencyCacheSnapshot.sha256,
+          packageJsonSha256: isolatedDependencies.packageJsonSha256,
+          lockfileSha256: isolatedDependencies.lockfileSha256,
+          registryOrigin: isolatedDependencies.registryOrigin,
+          npm: isolatedDependencies.npm,
+          tools: isolatedDependencies.tools,
+          mutationProtection: process.platform === 'win32'
+            ? 'windows-acl-read-execute'
+            : 'read-only-mode-bits',
+          verifiedAfterPackaging: true,
+        },
+        cleanedAfterRelease: true,
+      },
       packagedAutomationDefault: 'disabled',
       packagedAutomationOptInFlag: '--enable-private-automation',
       appxManifest,
@@ -482,7 +695,10 @@ async function main() {
   }
   const reportPath = path.join(releaseDir, 'provenance.json')
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)
-  console.log(`APPROVE: isolated release completed.\nProvenance: ${reportPath}\nHashes: ${hashPath}`)
+    console.log(`APPROVE: isolated release completed.\nProvenance: ${reportPath}\nHashes: ${hashPath}`)
+  } finally {
+    await removeCanonicalStage(sourceDir)
+  }
 }
 
 try {

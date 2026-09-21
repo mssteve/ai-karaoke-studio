@@ -18,11 +18,41 @@ intended for distribution or anyone asks to update, release, package, ship, publ
 prepare a Microsoft Store submission. `npm run build`, an unpacked app, or a single
 installer is never release completion.
 
+For the command-level immutable source/dependency staging procedure, also read and apply
+`.squad\skills\immutable-release-staging\SKILL.md`. Any pipeline, source-selection,
+dependency-resolution, cache, packaging-input, or provenance change requires a fresh
+independent Tank review before an implementation commit may be followed by approval.
+
 ## 1. Approval and Safety Gates
 
+<<<<<<< Updated upstream
 Do not package until the responsible QA owner has approved the exact source. Read the
 feature's canonical QA skill and require a fresh report whose `verdict` is `APPROVE`,
 whose `cases` array is non-empty, and whose every case is `passed`. Record its path.
+=======
+Do not package until Tank has issued a fresh schema-2 `karaoke-release-approval` in a
+dedicated approval commit whose sole parent is the reviewed source target. The approval
+commit may change only `.squad/approvals/`, `.squad/agents/tank/`, and
+`.squad/decisions/inbox/`; packaged source must be content-identical to its parent.
+Require the tracked, clean canonical `.squad/reviewers.json` registry. The approval
+author must exactly match Tank's configured name/email. The committer must exactly match
+either Tank or the configured project maintainer. Require structurally parsed, unique
+exact `Reviewed-by` and `Reviewer-Role` trailers and reject lookalike, prefixed,
+suffixed, case-varied, duplicate, or conflicting trailer keys/values.
+
+Approval and evidence must be exact regular-file blobs from the approval commit, clean,
+tracked, nonignored, canonically cased and contained in the repository. Reject ADS,
+path escapes, symlink/junction/reparse chains, and detectable hardlinks. Tank evidence
+reports must bind reviewer/role, APPROVE verdict, passed status, counts, timestamp, and
+hash exactly to the envelope. Never accept working-tree, ignored, or fabricated evidence.
+Parse and hash approval/evidence from the canonical committed Git blobs. Validate the
+index and checkout separately with Git's attribute-aware comparison so legitimate LF
+blob/CRLF checkout representation is accepted, while real edits, staging, deletion,
+type/path changes, and unsafe clean/smudge/process/encoding/ident attributes fail closed.
+Require explicit safe transform and text/EOL states from committed attributes, reject
+local/inherited overrides and sentinel-named configured filters, and verify every
+physical path component has the exact canonical Git spelling and normalization.
+>>>>>>> Stashed changes
 
 Before changing anything:
 
@@ -61,11 +91,67 @@ Set-Location C:\git\karaoke-player
 npm run release -- --approval=scripts\qa-artifacts\<approved-run>\report.json
 ```
 
+<<<<<<< Updated upstream
 The workflow exclusively locks release production, removes stale `release`, snapshots
 inputs, runs one clean build, verifies default-disabled automation, builds NSIS then APPX
 sequentially from the same build with `--publish never`, installs the NSIS silently in an
 isolated location, checks packaged Demucs, and regenerates provenance and hashes.
 
+=======
+`npm run release` routes through `deploy-release --build`; direct invocation of
+`scripts\release.mjs` is forbidden and rejected without a deploy-issued, one-use 256-bit
+capability. Issuance exists only inside the canonical deploy entry point and verifies
+the current OS process image, immutable command line, script realpath, and creation
+identity; importing the module or mutating JavaScript argv/environment cannot mint.
+The capability is bound to the active release lock and matching random one-use token,
+deploy/child PID start identities, canonical command lines/images, actual OS parent
+relation, approval HEAD, target source, version, operation, and a short expiry. The
+consumer revalidates all bindings, atomically consumes the capability, and clears its
+handoff environment. Missing, wrong, stale, replayed, or concurrently reused tokens fail.
+The workflow exclusively locks release production, removes stale `release`, and
+materializes the exact approved target commit from Git object bytes into an owned
+`.release-source-*` directory without checkout filters. All committed inputs are made
+read-only. Run a fresh lockfile-exact `npm ci` inside that directory with an empty staged
+home, explicit empty npm config files, a staged npm/Electron/electron-builder cache, a
+single validated HTTPS lockfile registry origin, and a minimal environment that does not
+inherit `NODE_PATH`, npm prefix/config, workspace, proxy, or credential variables. Never
+link, junction, copy-on-write reference, or otherwise resolve through live
+`node_modules`.
+
+Reject dependency reparse points, symlinks, hardlinks, non-regular files, path escapes,
+or missing lockfile integrity/version metadata. Record the complete file/size/mode/hash
+inventory. Resolve and hash TypeScript, Vite, ASAR, and electron-builder only beneath
+the staged dependency root, then ACL-lock dependencies read/execute-only before any
+build. Prime required Electron/builder caches only into the owned stage using
+non-promotable output, verify and ACL-lock that cache read/execute-only on Windows
+(read-only modes elsewhere), delete priming output, and perform the final build/package.
+Use Vite's runner config loader so it never writes `.vite-temp` under the locked
+dependency tree. Reverify both inventories before artifact promotion.
+
+TypeScript, Vite, Electron compilation, and electron-builder run with the canonical
+staging root as their working directory. The live worktree is never a compiler,
+packager, module-resolution, package-binary, or cache input.
+Canonical files, paths, types, hashes, and aggregate are verified before and after build
+and packaging; any staging mutation rejects before promotion, and the owned source stage
+is specifically cleaned in `finally`. The workflow then verifies default-disabled
+automation, builds NSIS then APPX
+sequentially from the same build with `--publish never`, installs the NSIS silently in an
+isolated location, checks packaged Demucs, and regenerates provenance and hashes.
+
+At every phase boundary—source materialization, dependency installation, cache priming,
+compile, NSIS package, APPX package, verification, and promotion—verify the bytes
+actually consumed by the next command, not merely the live worktree or a before/after
+proxy. Recheck canonical path, regular-file type, exact case, containment, reparse/
+symlink status, detectable hardlink identity, file inventory, and aggregate hashes.
+Any mismatch or unverifiable representation fails closed while leaving existing
+`release`, ZIP, installation, and user data untouched.
+
+This is a local workflow-integrity boundary, not protection from malicious code running
+as the same OS user. Such code can rewrite repository configuration, implementation,
+process state, or Git history. Protect the workstation/account and independently verify
+the reviewed commit when that attacker model matters.
+
+>>>>>>> Stashed changes
 ## 4. Required Package Checks
 
 Require `release\provenance.json` to say:
@@ -73,7 +159,13 @@ Require `release\provenance.json` to say:
 - `verdict: APPROVE` and the expected package version.
 - The approval path/hash and all approval gates passed.
 - One build for both targets; order `nsis`, then `appx`.
-- Zero source `missing`, `extra`, and `mismatched` entries.
+- Zero canonical-stage and live-source `missing`, `extra`, and `mismatched` entries.
+- Canonical staging commit/hash/file count match the approved target source; the full
+  staged Git-tree aggregate is recorded and cleanup is asserted.
+- Dependency mode is `fresh-lockfile-npm-ci-isolated-read-only`; provenance records
+  package/lock hashes, npm and Node versions/hashes, registry origin, complete dependency
+  and cache counts/aggregates, staged tool paths/hashes, ACL/read-only protection, and a
+  successful post-package inventory check.
 - Main `dist-electron/main.js`, preload `dist-electron/preload.cjs`, automation
   `dist-electron/automation.js`, and every renderer output match in NSIS staging, APPX
   staging, and APPX payload ASARs.

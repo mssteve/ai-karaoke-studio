@@ -340,3 +340,166 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   `scripts/qa-artifacts/release-0.3.4-final-approved/release-verdict.json`.
 
 📌 Team update (2026-09-20T10:27:28.056-07:00): Tank's final 0.3.4 package approval is canonical. Installation preserved library/playlists/processed data, live music+mic ratio was approximately 2, and cleanup passed. Normal app PID 26988 remains running with Mic OFF and automation disabled; Store submission remains blocked.
+
+- 2026-09-20 release/deploy automation independent re-review: **REJECT** despite deploy
+  QA 61/61, clean build, packaged Demucs 4/4, and passing syntax/diff checks. Real
+  default dry-run and stale `--zip` both exited 3 on dirty source and preserved all 854
+  inventoried release/ZIP/lock/install/user-data files byte- and timestamp-identically.
+- Approval authorization remains forgeable: an ignored/untracked, self-written envelope
+  claiming Tank was accepted using arbitrary 999/999 assertions against a tracked clean
+  history file. The envelope itself is not required to be tracked/clean, and referenced
+  evidence content is not parsed to bind reviewer, verdict, counts, or timestamps.
+- Low-level packaging authorization also remains forgeable/replayable: an attacker-created
+  lock and matching environment passed the ownership gate; a nonexistent stale PID passed;
+  and two concurrent invocations replaying the same token both passed. The code compares
+  caller-supplied values but does not prove lock liveness/start time or actual OS parentage.
+- Approval/evidence paths also lack a reparse-point and canonical real-path containment
+  check. No Tank approval was created and no real build-to-ZIP exercise is authorized.
+  Full decision: `.squad/decisions/inbox/tank-release-deploy-automation.md`.
+
+- 2026-09-20 release/deploy integrity follow-up: **REJECT**. The revised deploy suite
+  passed 98/98, build passed, Demucs boundary/runtime passed 14/14 and 18/18, and syntax
+  plus diff checks passed. Real default dry-run and stale `--zip` both exited 3 before
+  mutation; all 1,402 inventoried release, ZIP, lock, install, user-data, and
+  representative source files retained identical bytes and timestamps.
+- Prior capability, lock-token, approval-chain, trailer, committed-evidence, and
+  reparse checks are substantially closed. One authorization blocker remains:
+  `readReviewerPolicy` accepts an ambiguous reviewer registry because it selects the
+  first matching identity without enforcing unique reviewer identities or unique
+  allowed committer identities. A direct fixture with two conflicting `Tank` entries
+  still passed valid two-commit approval validation. Neo must own the next revision;
+  no approval record or release action is authorized.
+
+- 2026-09-20 fresh reviewer-registry final gate: **APPROVE IMPLEMENTATION / RELEASE
+  APPROVAL NOT YET AUTHORIZED**. The former two-conflicting-`Tank` exploit now fails
+  closed before reviewer selection. Focused registry attacks passed 17/17, including
+  identical/conflicting/case/whitespace duplicates, reviewer and committer name/email
+  collisions, cross-reviewer committer aliases, conflicting trailer mappings, malformed
+  email, absent/modified/untracked registry, and one clean canonical Tank acceptance.
+- The complete deploy suite passed 114/114. Build, syntax, diff checks, Demucs boundary
+  14/14, and real Demucs runtime 18/18 passed. The suite also reconfirmed arbitrary
+  importer denial, argv/environment mutation denial, copied/renamed/wrapper/path-mimic
+  rejection, missing/wrong/forged/replayed lock capabilities, PID/start-time/parent
+  identity checks, atomic one-use consumption, exact trailers, two-commit approval
+  ancestry, and committed evidence binding.
+- Real default dry-run and stale `--zip` each exited 3 against the intentionally dirty
+  source. Independent before/after SHA-256, byte-length, and UTC timestamp inventory
+  covered 1,668 release, ZIP, lock, install, user-data, and changed-source entries with
+  zero differences for either command. No lock/capability/staging residue remained.
+- The new `.gitignore` entries are root-scoped disposable lock, capability, staging,
+  backup, and QA scratch paths. Release/deploy implementation, QA, reviewer registry,
+  approval paths, skills, README, and package metadata remain visible. Reviewer policy
+  content contains only synthetic `Tank`/maintainer identities and no secret material.
+  Because the implementation remains uncommitted, no schema-2 source-bound approval
+  evidence was created and no package/install/commit/push/merge or artifact deletion
+  was performed.
+
+- 2026-09-20 canonical source-identity re-review: **APPROVE IMPLEMENTATION / RELEASE
+  APPROVAL NOT AUTHORIZED**. Reproduced the real failure exactly: the legacy approval
+  inventory was 97 files with aggregate
+  `2bcb7400da2b47ed99cb01b4b512a9547f044755a4f8c6461809d5745faf75f1`,
+  while the filesystem inventory was 99 files because ignored `src/types.js` and
+  `src/types.js.map` were included; 63 tracked files also differed only by CRLF checkout
+  representation.
+- The revised shared `git ls-tree`/blob snapshot accepted a clean CRLF checkout while
+  retaining canonical blob bytes, excluded both ignored generated files despite content
+  changes, and passed 15/15 independent source attacks covering unstaged/staged edits,
+  deletion, rename, path case, file-to-directory, untracked shadow, `.gitattributes`,
+  hardlink, junction, Git symlink/gitlink modes, sorting, and determinism. Native file
+  symlink creation was unavailable without Windows Developer Mode; junction and Git
+  mode attacks failed closed.
+- Full deploy QA passed 123/123. Build, syntax for 3 changed modules, `git diff --check`,
+  Demucs boundary 14/14, and real Demucs runtime 18/18 passed. Built-output secret scan
+  covered 33 files and 628,055 bytes with zero findings. Default and explicit dry-runs
+  each exited 3 and preserved all 1,407 inventoried release/ZIP/lock/install/user-data/
+  changed-source entries with zero hash, size, timestamp, type, or membership changes.
+- Historical approval `bcbbb339` remains in Git with sole parent `53a628e`; its obsolete
+  97-file identity differs from the revised canonical 98-file target identity
+  `0ca712daf26bdb6508c37cce807c9b3237b6ebe8ab2fb59da7ec7f78c958591f`.
+  Forward working-tree deletion of the obsolete approval/evidence therefore fails closed
+  and cannot authorize the revised source. No packaging, ZIP, install, approval
+  generation, commit, push, merge, tag, or release-artifact deletion was performed.
+
+- 2026-09-20 approval checkout-normalization re-review: **REJECT**. The intended LF
+  blob/clean CRLF checkout behavior passed and canonical blob hashes differed from raw
+  checkout hashes as required. The shipped focused cases passed 10/10 and full deploy
+  QA passed 132/132, but two independent Windows attacks bypassed the new gate.
+- `scripts/release-artifact-verification.mjs:144` treats the literal attribute values
+  `filter=unspecified` and `filter=unset` as though the filter were absent. A configured
+  `filter.unspecified.clean` that emits the committed approval blob made a tampered
+  checkout pass `git diff` and `validateApproval`.
+- `scripts/release-artifact-verification.mjs:191-192` checks only Git's tracked path
+  spelling, not the physical directory-entry spelling. Renaming the approval file
+  case-only from `tank.json` to `TANK.JSON` left Git clean and `validateApproval`
+  accepted the alias on Windows.
+- Build, syntax for 3 changed modules, `git diff --check`, Demucs 14/14 and 18/18, and
+  the 33-file/628,055-byte built-output secret scan otherwise passed. Real default and
+  stale `--zip` dry-runs each exited 3 and preserved all 1,405 inventoried files with
+  zero hash, size, timestamp, type, or membership changes; no lock/capability remained.
+- Historical approval commit `48cfb8f` and parent `a28111a` remain intact, while both
+  rejected files are deleted only forward. The old evidence hash binds CRLF checkout
+  bytes and fails the revised canonical-blob hash check, so it cannot authorize the
+  revision. Neo owns the next revision; Cypher is locked out.
+
+- 2026-09-20 approval attribute/path re-review: **REJECT**. Neo's revision closes both
+  originally reported approval/evidence bypasses: the sentinel-named clean-filter
+  concealment now fails, and case-only approval/evidence file and parent-directory
+  renames fail exact physical component checks. Focused approval QA passed 31/31 and
+  full deploy QA passed 152/152.
+- A release-source variant remains open. `assertProtectedWorktree` at
+  `scripts/release-artifact-verification.mjs:596-598` trusts attribute-aware `git diff`
+  for every protected source, but `.gitattributes` explicitly disables transforms only
+  for JSON and `.gitattributes`, not `.mjs`, `.ts`, or other build inputs. Adding
+  `src/main.ts filter=unspecified` to `.git/info/attributes`, configuring
+  `filter.unspecified.clean` to emit `HEAD:src/main.ts`, and tampering the checkout made
+  `git diff --quiet` return zero and `snapshotProtectedSources` accept the canonical
+  snapshot while a build would consume attacker bytes.
+- Additional attacks passed for global/system sentinel driver configuration, macro
+  expansion, CRLF-versus-semantic JSON changes, trailing-dot/space names, Unicode
+  normalization/lookalikes, ADS, hardlinks, junctions, index/tree identity, containment,
+  and file/directory changes. Native symlink creation required unavailable Developer
+  Mode; 8.3 availability could not be queried without elevation.
+- Build, syntax/diff, Demucs 14/14 and 18/18, and secret scan of 33 files / 628055 bytes
+  passed. Default and `--zip` dry-runs exited 3 and preserved 1689 entries with zero
+  differences. Historical `48cfb8f` and its two rejected blobs remain intact and deleted
+  only forward. No release mutation or repository-history operation occurred. Apoc owns
+  the next revision; Neo is locked out.
+
+- 2026-09-20 protected-source physical-byte re-review: **REJECT**. Apoc closed the
+  reported `.git/info/attributes` plus sentinel clean-driver concealment: the exact
+  `filter=unspecified` attack leaves Git clean but now fails before snapshot/build.
+  Expanded focused attribute/path attacks passed 49/49 and full deploy QA passed
+  165/165. Build, syntax/diff, Demucs 14/14 and 18/18, and the built-output secret scan
+  (33 files, 628055 bytes, zero findings) passed.
+- A practical source-to-build TOCTOU remains at `scripts/release.mjs:302,343,393`.
+  The workflow snapshots physical source, later builds from the mutable worktree, and
+  only snapshots again after packaging. In an isolated exact-source fixture, replacing
+  `src/main.tsx` after the first snapshot, building, restoring its original bytes and
+  timestamp, then taking the second snapshot produced identical complete snapshots
+  while the renderer bundle retained attacker bytes. Thus actual build bytes can
+  diverge from the approved source despite both gates passing.
+- Real default and stale `--zip` dry-runs exited 3 with zero inventoried mutations and
+  no lock/capability residue. Historical `48cfb8f` and both rejected blobs remain intact
+  and forward-deleted; current validation rejects them. No package, ZIP, install,
+  approval, commit, push, merge, tag, reset, amend, rewrite, or release-artifact
+  deletion occurred. Trinity owns the next revision; Apoc is locked out.
+
+- 2026-09-20 canonical staging re-review: **REJECT**. Git-object source staging closes
+  the original live-worktree renderer TOCTOU: the real build test restored
+  `src/main.tsx` bytes/mtime, retained equal staged snapshots, and found no live
+  sentinel in staged renderer output. Full deploy QA passed 167/167.
+- A practical dependency TOCTOU remains at
+  `scripts/release-source-staging.mjs:103,200-211` and
+  `scripts/release.mjs:386-395`: staging junctions the mutable live `node_modules`,
+  excludes it from canonical snapshots, and does not bind dependency bytes to the
+  approved lockfile before or after phases. After the canonical precheck, Tank modified
+  `node_modules/vite/bin/vite.js`, ran the real staged build, restored exact dependency
+  bytes and mtime, and obtained equal canonical snapshots while the staged renderer
+  bundle contained the injected sentinel. The current workflow would hash and package
+  that output rather than abort.
+- Build, syntax/diff, Demucs 14/14 and 18/18, and built-output secret scan (33 files,
+  628055 bytes, zero findings) passed. Default and stale `--zip` runs exited 3.
+  `release-source-staging.mjs` is narrowly unignored/trackable. Historical `48cfb8f`
+  remains intact and unusable; rejected evidence remains forward-deleted. No release,
+  ZIP, install, approval, commit, push, merge, tag, rewrite, or user-artifact deletion
+  occurred. Trinity is reviewer-locked; Neo owns the next revision.

@@ -77,3 +77,20 @@ Initial setup complete.
   commit, push, or running app was touched.
 
 📌 Team update (2026-09-20T10:27:28.056-07:00): Karaoke Studio 0.3.4 is installed and package-approved on `feature/live-mic-monitor`; Store submission remains blocked by placeholder identity/publisher and unsigned artifacts. Normal app PID 26988 remains running with Mic OFF and automation disabled.
+
+- 2026-09-21 release/deploy restart custody: recorded branch
+  `feature/release-deploy-automation` at committed HEAD `48cfb8f`, the immutable
+  four-commit implementation/approval chain, why both historical approvals are
+  obsolete, and the complete ordered authorization/source/dependency rejection history.
+- Updated current identity for Neo's uncommitted isolated lockfile dependency staging
+  and Tank's mandatory next independent review. Preserved reviewer lockout and
+  forward-only deletion rules.
+- Added the canonical `immutable-release-staging` skill and linked it from the full
+  Windows release skill, covering Git-object source materialization, scrubbed isolated
+  `npm ci`, dependency/cache/tool inventories, ACL protection, phase-boundary checks,
+  provenance, attack tests, cleanup, and prohibited live dependency links.
+- Recorded the formerly suspended exact PID tree 25088 → 2704 → 27184 as absent at
+  restart, with no resume/termination action, and preserved prior 0.3.4 production
+  artifacts, stale 0.3.3 friend ZIP, and unresolved Store identity/signing blockers.
+
+📌 Team update (2026-09-21T09:42:35.628-07:00): Restart-safe release/deploy custody is persisted. Tank must independently review Neo's uncommitted 169/169 dependency-isolation revision before any implementation commit, fresh approval-only child, package, ZIP, install, or publication action.

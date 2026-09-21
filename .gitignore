@@ -71,6 +71,17 @@ service-account*.json
 *.p7b
 
 # Logs, diagnostics, and temporary files
+<<<<<<< Updated upstream
+=======
+/.deploy-release.lock
+/.release.lock
+/.release-capability
+/.release-capability.consumed-*
+/.release-source-*/
+/.release-staging-*/
+/.release-backup-*/
+/.qa-approved-*/
+>>>>>>> Stashed changes
 *.log
 logs/
 npm-debug.log*

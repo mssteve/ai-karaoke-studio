@@ -37,7 +37,109 @@ renderer and Electron compiler watch processes.
 npm run release
 ```
 
+<<<<<<< Updated upstream
 The isolated release command takes an exclusive lock, removes prior outputs, performs one build followed by sequential NSIS and APPX packaging, verifies packaged preload and automation files, silently installs the NSIS artifact, extracts the APPX artifact, and launches Demucs with `ELECTRON_RUN_AS_NODE` from both artifact payloads against a generated short WAV. This runtime gate verifies that Demucs, Mediabunny, its MP3 encoder, ONNX Runtime, and generated stems work from the ASAR-unpacked layout. Evidence, artifact hashes, and source provenance are written under `release`. The first transcription downloads the selected Whisper model into the app's private data directory; future processing works offline.
+=======
+This is the sole packaging entry. It routes through `deploy-release`; the low-level
+packager rejects direct invocation unless it receives the deploy-owned release-lock
+token and consumes a matching one-use capability. Capability issuance is private to a
+process whose immutable OS command line identifies the canonical realpath
+`scripts\deploy-release.mjs`; importing the module, changing `process.argv`/environment,
+or running a wrapper/renamed copy cannot mint one. The consumer verifies both canonical
+process images/entry scripts, PID creation identities, actual parentage, the active lock,
+and its random 256-bit token before packaging. It materializes every file in the
+approved target commit from Git object bytes into an owned, read-only canonical source
+staging directory. It performs a fresh `npm ci` there from the committed
+`package-lock.json` under an empty staged home/config, staged npm/Electron/builder
+caches, a single lockfile registry origin, and a scrubbed environment with no inherited
+`NODE_PATH`, npm prefix/config, workspace, credential, or proxy variables. No live
+`node_modules` link or path is used. TypeScript, Vite, ASAR, and electron-builder are
+resolved and hashed only below staged `node_modules`.
+
+The complete dependency/cache file, size, mode, and content inventory is recorded.
+Windows ACLs make dependencies read/execute-only before any build. After non-promotable
+cache priming, its verified cache is also made read/execute-only;
+Vite's runner config loader avoids its normal `node_modules/.vite-temp` write. The
+locked inventories are reverified after packaging, so direct writes, replacement,
+hardlinks, reparse points, path swaps, and package-binary substitution either fail or
+reject promotion. Live worktree changes therefore cannot enter build output. The staged
+source tree is independently hash/type/path checked before and after build and packaging,
+then specifically removed. The isolated workflow performs one final build
+followed by sequential NSIS and APPX
+packaging, verifies packaged preload and automation files, silently installs the NSIS
+artifact, extracts the APPX artifact, and launches Demucs with `ELECTRON_RUN_AS_NODE`
+from both payloads. Evidence, artifact hashes, and source provenance are written under
+`release`.
+
+Release approval uses two commits. Commit the product/release implementation first
+(the **target commit**). Tank then reviews that exact commit and creates a second
+**approval commit** containing only `.squad/approvals/`,
+`.squad/agents/tank/`, and `.squad/decisions/inbox/` records. The canonical reviewer and
+committer policy is source-controlled at `.squad/reviewers.json`; local Git configuration
+is not authorization. The approval commit author must exactly be the configured Tank
+identity. Its committer must exactly be either Tank or the configured project maintainer,
+allowing the maintainer to commit a reviewer-produced record. Its terminal trailer block
+must contain exactly one `Reviewed-by: Tank <tank@squad.local>` and exactly one
+`Reviewer-Role: independent-release-reviewer`. Prefixed, suffixed, case-varied,
+Unicode-confusable, duplicate, conflicting, or substring matches are rejected.
+Approval JSON is
+fail-closed and has exact fields: `schemaVersion: 2`,
+`kind: "karaoke-release-approval"`, reviewer `{ identity: "Tank", role:
+"independent-release-reviewer" }`, `verdict: "APPROVE"`, exact `packageVersion`,
+four-part `appxVersion`, current branch and full 40-character `targetCommit`, protected-source
+`sha256` and `fileCount`, `createdAt`, `expiresAt`, and one or more evidence entries.
+Each evidence entry has exactly `name`, a Tank-owned repository-relative committed `path`,
+SHA-256, `status: "passed"`, equal positive `passed`/`total`, and `createdAt`. The
+reviewer creates this envelope from their committed reports; release/deploy commands
+only validate it and never fabricate approval. Evidence reports repeat and bind the
+reviewer, role, APPROVE verdict, status, counts, and timestamp. Unknown fields, wrong
+parent, product changes in the approval commit, path escapes/case tricks/ADS, dirty,
+ignored, untracked, symlink/reparse, or detectably hardlinked records, stale timestamps,
+unsafe or ambiguous Git clean/smudge/process/encoding/ident transforms, non-explicit
+text/EOL policy, physical path case/normalization aliases, and any identity/hash/source
+mismatch are rejected. Approval/evidence JSON is parsed and hashed from its canonical
+committed Git blob; Git's attribute-aware index/worktree comparison permits only
+explicitly declared legitimate checkout EOL representation differences. Protected packaged source at the
+approval commit must be content-identical to the target parent.
+
+The deploy-to-packager handoff is bound to the active deploy-owned release lock and its
+separate one-use random token as well as deploy/child process identities/start times,
+OS command lines/images and parent relation, approval HEAD, source, version, operation,
+and expiry. The capability is atomically consumed before packaging; replay, missing or
+wrong tokens, stale PID identities, and forged parent command lines fail closed. Handoff
+environment values are deleted from the low-level process immediately after consumption.
+
+Protected-source identity hashes file paths and contents across application source,
+all scripts (excluding generated `scripts\qa-artifacts`), package metadata/lockfile,
+build/configuration, and canonical skills. In-operation stability additionally records
+byte lengths and modification times. Artifact provenance is bound to the approved
+canonical staging aggregate; live-worktree stability remains a separate defense and is
+not the source consumed by compilers or packagers. Provenance additionally binds
+`package.json` and `package-lock.json` hashes, npm/Node executable hashes and versions,
+the dependency/cache aggregates and counts, registry origin, resolved tool paths/hashes,
+mutation protection, and post-package verification.
+
+## Release deployment
+
+The fail-closed deployment command is non-mutating unless a mode is explicit:
+
+```powershell
+npm run deploy:release
+npm run deploy:release -- --build --approval=.squad\approvals\<tank-approval>.json
+npm run deploy:release -- --zip
+npm run deploy:release -- --install
+npm run deploy:release -- --build --approval=<report> --zip --install
+```
+
+No arguments is a dry run. Mutating modes run in build → ZIP → install order. Reusing
+an existing installer requires current version, source, approval, provenance, hashes,
+APPX identity, ASAR contents, and secret-scan results to match exactly. ZIP output is
+atomically replaced and contains only the installer, `README.txt`, and
+`SHA256SUMS.txt`. Installation is always opt-in, targets only the exact normal per-user
+executable, preserves user data, and relaunches only if that executable was running.
+This command never publishes, signs, changes the version, enables private automation,
+or submits to the Microsoft Store.
+>>>>>>> Stashed changes
 
 ## Microsoft Store package
 
