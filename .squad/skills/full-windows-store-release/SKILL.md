@@ -25,11 +25,6 @@ independent Tank review before an implementation commit may be followed by appro
 
 ## 1. Approval and Safety Gates
 
-<<<<<<< Updated upstream
-Do not package until the responsible QA owner has approved the exact source. Read the
-feature's canonical QA skill and require a fresh report whose `verdict` is `APPROVE`,
-whose `cases` array is non-empty, and whose every case is `passed`. Record its path.
-=======
 Do not package until Tank has issued a fresh schema-2 `karaoke-release-approval` in a
 dedicated approval commit whose sole parent is the reviewed source target. The approval
 commit may change only `.squad/approvals/`, `.squad/agents/tank/`, and
@@ -52,7 +47,6 @@ type/path changes, and unsafe clean/smudge/process/encoding/ident attributes fai
 Require explicit safe transform and text/EOL states from committed attributes, reject
 local/inherited overrides and sentinel-named configured filters, and verify every
 physical path component has the exact canonical Git spelling and normalization.
->>>>>>> Stashed changes
 
 Before changing anything:
 
@@ -64,43 +58,59 @@ Before changing anything:
    approval. Record SHA-256 for the approval report and screenshots.
 4. Never use live `%APPDATA%\karaoke-studio`, mutate imported media, delete retained QA
    evidence, expose signing credentials, or publish during local packaging.
-5. Stop on missing Partner Center identity values, missing approval, failed checks, or
-   source mutation. Do not weaken a gate.
+5. Stop on missing Partner Center identity values, missing approval, failed checks,
+   conflict markers in `scripts\release.mjs`, `README.md`, or this skill, or source
+   mutation. Do not weaken a gate.
 
 ## 2. Versioning
 
-Use semantic `MAJOR.MINOR.PATCH`. For backward-compatible user-facing fixes or features,
-choose the smallest unused patch version:
+Use semantic `MAJOR.MINOR.PATCH`. Completion does not select or write a version.
+`approval.packageVersion` must already equal the committed `package.json` version and
+both root `package-lock.json` version fields. APPX must emit that version as
+`MAJOR.MINOR.PATCH.0`. The approved version must be greater than every previously
+approved Store package. Never overwrite an approved same-version artifact with different
+bytes.
+
+Version selection, if retained on the same public entry, is a separate explicit prepare
+mode and is not release completion:
 
 ```powershell
-npm version patch --no-git-tag-version
+npm run release -- --bump=patch
 ```
 
-Use minor only for an intentionally broader compatible release and major for a breaking
-contract. `package.json` and both root version fields in `package-lock.json` must match.
-APPX must emit the same version as `MAJOR.MINOR.PATCH.0`. The new version must be greater
-than every previously approved Store package. Never overwrite an approved same-version
-artifact with different bytes; bump first.
+`--bump=minor` and `--bump=major` are the only other kinds. This mode is mutually
+exclusive with `--approval`, `--build`, `--zip`, `--install`, and `--dry-run`. It must
+refuse a dirty tree, conflict markers, unsynchronized manifests, and a live lock. It
+must not auto-commit, must not spawn packaging, and must not exit 0 after a successful
+prepare. Exit 0 is reserved for a verified promoted package. If that prepare mode is
+absent, synchronize the manifests with `npm version <kind> --no-git-tag-version`, commit
+that already versioned source, and obtain a fresh approval before completion. Never bump
+and then deploy in one process.
 
 ## 3. Canonical Command
 
-There is one official release entry point. Do not invoke electron-builder manually:
+There is one public completion entry. Do not invoke electron-builder manually, and do
+not treat `npm run dist`, `npm run dist:store`, or a direct deploy invocation as a
+second public release path:
 
 ```powershell
 Set-Location C:\git\karaoke-player
-npm run release -- --approval=scripts\qa-artifacts\<approved-run>\report.json
+npm run release -- --approval=.squad\approvals\<fresh-approval>.json
 ```
 
-<<<<<<< Updated upstream
-The workflow exclusively locks release production, removes stale `release`, snapshots
-inputs, runs one clean build, verifies default-disabled automation, builds NSIS then APPX
-sequentially from the same build with `--publish never`, installs the NSIS silently in an
-isolated location, checks packaged Demucs, and regenerates provenance and hashes.
+That is the only exit-0 release path. It is sufficient only with a fresh schema-2
+approval of an already versioned source commit. Missing approval, unknown flags, and any
+mix of version mutation with `--approval`, `--build`, `--zip`, `--install`, or
+`--dry-run` fail before any write. Optional friend ZIP and per-user install remain
+explicit flags on this same entry, still require the same approval, and are not implied.
+Store submission stays blocked until Partner Center identity replaces `KaraokeStudio` /
+`CN=ms` and a fresh signed package exists.
 
-=======
-`npm run release` routes through `deploy-release --build`; direct invocation of
-`scripts\release.mjs` is forbidden and rejected without a deploy-issued, one-use 256-bit
-capability. Issuance exists only inside the canonical deploy entry point and verifies
+The public entry must delegate packaging to the canonical deploy workflow with the same
+approval path. It must not reimplement a second packager and must not import a capability
+issuer. Direct invocation of `scripts\release.mjs` is forbidden and is rejected before
+work with `Low-level packaging is internal` unless that deploy entry has issued a
+one-use 256-bit capability. Issuance exists only inside the canonical deploy entry point and verifies
 the current OS process image, immutable command line, script realpath, and creation
 identity; importing the module or mutating JavaScript argv/environment cannot mint.
 The capability is bound to the active release lock and matching random one-use token,
@@ -151,7 +161,6 @@ as the same OS user. Such code can rewrite repository configuration, implementat
 process state, or Git history. Protect the workstation/account and independently verify
 the reviewed commit when that attacker model matters.
 
->>>>>>> Stashed changes
 ## 4. Required Package Checks
 
 Require `release\provenance.json` to say:

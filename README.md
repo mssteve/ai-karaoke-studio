@@ -33,16 +33,39 @@ renderer and Electron compiler watch processes.
 
 ## Windows installer
 
+Completion is one public command. It is not an unattended bump-and-ship shot, and it is
+the only exit-0 release path:
+
 ```powershell
-npm run release
+npm run release -- --approval=.squad\approvals\<fresh-approval>.json
 ```
 
-<<<<<<< Updated upstream
-The isolated release command takes an exclusive lock, removes prior outputs, performs one build followed by sequential NSIS and APPX packaging, verifies packaged preload and automation files, silently installs the NSIS artifact, extracts the APPX artifact, and launches Demucs with `ELECTRON_RUN_AS_NODE` from both artifact payloads against a generated short WAV. This runtime gate verifies that Demucs, Mediabunny, its MP3 encoder, ONNX Runtime, and generated stems work from the ASAR-unpacked layout. Evidence, artifact hashes, and source provenance are written under `release`. The first transcription downloads the selected Whisper model into the app's private data directory; future processing works offline.
-=======
-This is the sole packaging entry. It routes through `deploy-release`; the low-level
-packager rejects direct invocation unless it receives the deploy-owned release-lock
-token and consumes a matching one-use capability. Capability issuance is private to a
+That entry requires a fresh Tank schema-2 approval of an already versioned source commit,
+then delegates packaging to the canonical deploy workflow with the same approval. It does
+not bump during completion. Missing approval, unknown flags, and any mix of `--bump` with
+`--approval`, `--build`, `--zip`, `--install`, or `--dry-run` fail before any write.
+`npm run dist`, `npm run dist:store`, and direct `node scripts\deploy-release.mjs` are not
+a second public completion path.
+
+Version selection, if retained on this same entry, is a separate mode and is not release
+completion:
+
+```powershell
+npm run release -- --bump=patch
+```
+
+`--bump=minor` and `--bump=major` are the other kinds. That mode must not be combined
+with approval or packaging flags, must not auto-commit, must not spawn packaging, and
+must not exit 0. Optional friend ZIP and per-user install remain explicit flags on the
+completion entry, still require the same approval, and are not implied:
+
+```powershell
+npm run release -- --approval=.squad\approvals\<fresh-approval>.json --zip
+npm run release -- --approval=.squad\approvals\<fresh-approval>.json --install
+```
+
+Direct `node scripts\release.mjs` is internal. It rejects bypass before work unless it
+receives the deploy-owned release-lock token and consumes a matching one-use capability. Capability issuance is private to a
 process whose immutable OS command line identifies the canonical realpath
 `scripts\deploy-release.mjs`; importing the module, changing `process.argv`/environment,
 or running a wrapper/renamed copy cannot mint one. The consumer verifies both canonical
@@ -119,34 +142,30 @@ not the source consumed by compilers or packagers. Provenance additionally binds
 the dependency/cache aggregates and counts, registry origin, resolved tool paths/hashes,
 mutation protection, and post-package verification.
 
-## Release deployment
+The internal deploy orchestrator is non-mutating unless ZIP or install was explicitly
+requested on the completion entry. Reusing an existing installer requires current
+version, source, approval, provenance, hashes, APPX identity, ASAR contents, and
+secret-scan results to match exactly. ZIP output is atomically replaced and contains
+only the installer, `README.txt`, and `SHA256SUMS.txt`. Installation is always opt-in,
+targets only the exact normal per-user executable, preserves user data, and relaunches
+only if that executable was running. On any failure, nothing is promoted and existing
+`release`, ZIP, installation, and user data stay untouched. The workflow never publishes,
+signs, changes the version during completion, enables private automation, or submits to
+the Microsoft Store.
 
-The fail-closed deployment command is non-mutating unless a mode is explicit:
-
-```powershell
-npm run deploy:release
-npm run deploy:release -- --build --approval=.squad\approvals\<tank-approval>.json
-npm run deploy:release -- --zip
-npm run deploy:release -- --install
-npm run deploy:release -- --build --approval=<report> --zip --install
-```
-
-No arguments is a dry run. Mutating modes run in build → ZIP → install order. Reusing
-an existing installer requires current version, source, approval, provenance, hashes,
-APPX identity, ASAR contents, and secret-scan results to match exactly. ZIP output is
-atomically replaced and contains only the installer, `README.txt`, and
-`SHA256SUMS.txt`. Installation is always opt-in, targets only the exact normal per-user
-executable, preserves user data, and relaunches only if that executable was running.
-This command never publishes, signs, changes the version, enables private automation,
-or submits to the Microsoft Store.
->>>>>>> Stashed changes
+The isolated verification installs the NSIS artifact outside normal user data, extracts
+the APPX artifact, and launches Demucs with `ELECTRON_RUN_AS_NODE` from both payloads
+against a generated short WAV. This runtime gate verifies that Demucs, Mediabunny, its
+MP3 encoder, ONNX Runtime, and generated stems work from the ASAR-unpacked layout. The
+first transcription downloads the selected Whisper model into the app's private data
+directory; future processing works offline.
 
 ## Microsoft Store package
 
 Configure the publisher identity assigned by Partner Center in `package.json`, then run the same isolated release:
 
 ```powershell
-npm run release
+npm run release -- --approval=.squad\approvals\<fresh-approval>.json
 ```
 
 Before publishing, add production icons, privacy/support URLs, Store screenshots, age ratings, and license notices for the bundled AI models and media components.

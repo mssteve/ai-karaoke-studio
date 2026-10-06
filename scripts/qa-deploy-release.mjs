@@ -388,9 +388,17 @@ test('combined modes retain build, ZIP, install order intent', () => {
   })
 })
 
-test('npm release routes through deploy build and low-level release rejects bypass', async () => {
+test('npm release is the sole completion entry and low-level release rejects bypass', async () => {
   const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8'))
-  assert.equal(packageJson.scripts.release, 'node scripts/deploy-release.mjs --build')
+  assert.equal(packageJson.scripts.release, 'node scripts/release-version.mjs')
+  assert.equal(packageJson.scripts.dist, 'npm run release --')
+  assert.equal(packageJson.scripts['dist:store'], 'npm run release --')
+  const source = await readFile(path.join(process.cwd(), 'scripts', 'release-version.mjs'), 'utf8')
+  assert.equal(source.includes('scripts/deploy-release.mjs'), true)
+  assert.equal(source.includes('issueReleaseCapability('), false)
+  assert.equal(source.includes("from './deploy-release.mjs'"), false)
+  assert.equal(source.includes("from './release-operation-lock.mjs'"), false)
+  assert.equal(/spawn\([\s\S]{0,120}release\.mjs/.test(source), false)
   const result = spawnSync(process.execPath, ['scripts/release.mjs', '--approval=anything.json'], {
     cwd: process.cwd(),
     encoding: 'utf8',

@@ -2,13 +2,11 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   mkdir,
-  open,
   readFile,
   readdir,
   rename,
   rm,
   stat,
-  unlink,
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
@@ -18,8 +16,6 @@ import {
   scanAsar,
   scanDirectory,
 } from './package-secret-scan.mjs'
-<<<<<<< Updated upstream
-=======
 import {
   consumeReleaseCapability,
 } from './release-operation-lock.mjs'
@@ -35,13 +31,8 @@ import {
   snapshotCanonicalStage,
   snapshotIsolatedDependencies,
 } from './release-source-staging.mjs'
->>>>>>> Stashed changes
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-<<<<<<< Updated upstream
-const releaseDir = path.join(root, 'release')
-const lockPath = path.join(root, '.release.lock')
-=======
 const configuredSourceDir = process.env.KARAOKE_RELEASE_SOURCE_DIR
 const sourceDir = configuredSourceDir ? path.resolve(configuredSourceDir) : undefined
 const configuredReleaseDir = process.env.KARAOKE_RELEASE_DIR
@@ -53,15 +44,11 @@ if (configuredReleaseDir
     || !path.basename(releaseDir).startsWith('.release-staging-'))) {
   throw new Error('KARAOKE_RELEASE_DIR must be an owned staging directory directly under the repository root.')
 }
->>>>>>> Stashed changes
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const approvalArgument = process.argv.find((value) => value.startsWith('--approval='))
 const approvalPath = approvalArgument
   ? path.resolve(root, approvalArgument.slice('--approval='.length))
   : undefined
-<<<<<<< Updated upstream
-let lock
-=======
 const ALLOWED_STAGE_OUTPUTS = [
   'dist',
   'dist-electron',
@@ -72,7 +59,6 @@ const ALLOWED_STAGE_OUTPUTS = [
   '.release-dependency-cache',
   '.release-runtime',
 ]
->>>>>>> Stashed changes
 
 function run(command, args, cwd = root, env = process.env) {
   return new Promise((resolve, reject) => {
@@ -102,81 +88,24 @@ function runCaptured(command, args, cwd = root) {
   })
 }
 
-async function acquireLock() {
-  try {
-    lock = await open(lockPath, 'wx')
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error
-    const existing = JSON.parse(await readFile(lockPath, 'utf8'))
-    try {
-      process.kill(existing.pid, 0)
-      throw new Error(`Release is already running as process ${existing.pid}.`)
-    } catch (probeError) {
-      if (probeError.code !== 'ESRCH') throw probeError
-      await unlink(lockPath)
-      lock = await open(lockPath, 'wx')
-    }
-  }
-  await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
-}
-
 async function hashFile(filePath) {
   const hash = createHash('sha256')
   hash.update(await readFile(filePath))
   return hash.digest('hex')
 }
 
-async function sourceFiles() {
-  const roots = ['electron', 'src', 'scripts', 'build']
-  const files = [
-    'package.json',
-    'package-lock.json',
-    'README.md',
-    'index.html',
-    'tsconfig.json',
-    'tsconfig.app.json',
-    'tsconfig.electron.json',
-    'tsconfig.node.json',
-    'vite.config.ts',
-  ]
-  async function walk(relative) {
-    const absolute = path.join(root, relative)
-    for (const entry of await readdir(absolute, { withFileTypes: true })) {
-      const child = path.join(relative, entry.name)
-      if (entry.isDirectory()) {
-        if (relative === 'scripts' && entry.name === 'qa-artifacts') continue
-        await walk(child)
-      } else {
-        files.push(child)
-      }
-    }
-  }
-  for (const directory of roots) await walk(directory)
-  return files.sort()
-}
-
 async function snapshotSources() {
-  const entries = []
-  for (const relative of await sourceFiles()) {
-    const absolute = path.join(root, relative)
-    try {
-      entries.push({ path: relative.replaceAll('\\', '/'), sha256: await hashFile(absolute) })
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error
-    }
-  }
-  const aggregate = createHash('sha256')
-  for (const entry of entries) aggregate.update(`${entry.path}\0${entry.sha256}\n`)
-  return { sha256: aggregate.digest('hex'), files: entries }
+  return snapshotProtectedSources(root)
 }
 
 function compareSnapshots(before, after) {
-  const beforeFiles = new Map(before.files.map((entry) => [entry.path, entry.sha256]))
-  const afterFiles = new Map(after.files.map((entry) => [entry.path, entry.sha256]))
+  const beforeFiles = new Map(before.files.map((entry) => [entry.path, entry]))
+  const afterFiles = new Map(after.files.map((entry) => [entry.path, entry]))
   const missing = [...beforeFiles.keys()].filter((file) => !afterFiles.has(file))
   const extra = [...afterFiles.keys()].filter((file) => !beforeFiles.has(file))
   const mismatched = [...beforeFiles.keys()].filter((file) =>
-    afterFiles.has(file) && afterFiles.get(file) !== beforeFiles.get(file))
+    afterFiles.has(file)
+      && JSON.stringify(afterFiles.get(file)) !== JSON.stringify(beforeFiles.get(file)))
   return { missing, extra, mismatched }
 }
 
@@ -377,23 +306,43 @@ async function extractAppx(appxPath) {
 }
 
 async function main() {
-  await acquireLock()
+  const capabilityPath = process.env.KARAOKE_RELEASE_CAPABILITY_PATH
+  const capabilityNonce = process.env.KARAOKE_RELEASE_CAPABILITY_NONCE
+  const releaseLockToken = process.env.KARAOKE_RELEASE_LOCK_TOKEN
+  if (capabilityPath !== path.join(root, '.release-capability')
+    || !capabilityNonce || !releaseLockToken) {
+    throw new Error(
+      'Low-level packaging is internal; use npm run release -- --approval=<committed-reviewer-approval>.',
+    )
+  }
   const startedAt = new Date().toISOString()
-  let approval
-  if (approvalPath) {
-    approval = JSON.parse(await readFile(approvalPath, 'utf8'))
-    if (approval.verdict !== 'APPROVE'
-      || !Array.isArray(approval.cases)
-      || approval.cases.length === 0
-      || !approval.cases.every((item) => item.status === 'passed')) {
-      throw new Error('Release approval evidence must be APPROVE with every reported gate passing.')
+  const before = await snapshotSources()
+  const { stdout: branchOutput } = await runCaptured('git', ['branch', '--show-current'])
+  const { stdout: headOutput } = await runCaptured('git', ['rev-parse', 'HEAD'])
+  const branch = branchOutput.trim()
+  const head = headOutput.trim()
+  let capability
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      capability = await consumeReleaseCapability({
+        capabilityPath,
+        nonce: capabilityNonce,
+        operation: 'package-release',
+        expectedHead: head,
+        expectedSourceSha256: before.sha256,
+        expectedVersion: packageJson.version,
+        lockPath: path.join(root, '.release.lock'),
+        lockToken: releaseLockToken,
+        root,
+        canonicalDeployPath: path.join(root, 'scripts', 'deploy-release.mjs'),
+        canonicalReleasePath: path.join(root, 'scripts', 'release.mjs'),
+      })
+      break
+    } catch (error) {
+      if (attempt === 199 || !/unavailable/.test(error.message)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 50))
     }
   }
-<<<<<<< Updated upstream
-  const before = await snapshotSources()
-  await rm(releaseDir, { recursive: true, force: true })
-  await mkdir(releaseDir, { recursive: true })
-=======
   if (!capability) throw new Error('Release capability was not consumed.')
   delete process.env.KARAOKE_RELEASE_CAPABILITY_PATH
   delete process.env.KARAOKE_RELEASE_CAPABILITY_NONCE
@@ -436,7 +385,6 @@ async function main() {
     }
     await rm(releaseDir, { recursive: true, force: true })
     await mkdir(releaseDir, { recursive: true })
->>>>>>> Stashed changes
 
     isolatedDependencies = await installIsolatedDependencies(sourceDir)
     const dependencySnapshot = isolatedDependencies.dependencies
@@ -504,10 +452,6 @@ async function main() {
     expected[relative] = await hashFile(path.join(sourceDir, relative))
   }
 
-<<<<<<< Updated upstream
-  const builder = require.resolve('electron-builder/out/cli/cli.js')
-  await run(process.execPath, [builder, '--win', 'nsis', '--x64', '--publish', 'never'])
-=======
   await run(process.execPath, [
     builder,
     '--win',
@@ -518,7 +462,6 @@ async function main() {
     '--config.directories.output',
     releaseDir,
     ], sourceDir, isolatedDependencies.env)
->>>>>>> Stashed changes
   const unpackedApp = path.join(releaseDir, 'win-unpacked')
   const unpackedAsar = path.join(releaseDir, 'win-unpacked', 'resources', 'app.asar')
   const nsisVerification = await verifyAsar(unpackedAsar, expected, 'NSIS staging app.asar')
@@ -527,9 +470,6 @@ async function main() {
   const exePath = path.join(releaseDir, `Karaoke Studio-Setup-${packageJson.version}.exe`)
   const nsisInstalledDemucsRuntime = await verifyNsisInstaller(exePath)
 
-<<<<<<< Updated upstream
-  await run(process.execPath, [builder, '--win', 'appx', '--x64', '--publish', 'never'])
-=======
   await run(process.execPath, [
     builder,
     '--win',
@@ -540,7 +480,6 @@ async function main() {
     '--config.directories.output',
     releaseDir,
     ], sourceDir, isolatedDependencies.env)
->>>>>>> Stashed changes
   const appxStagingDemucsRuntime = await verifyPackagedDemucs(unpackedApp, 'appx-staging')
   const appxStagingSecretScans = await scanStagingTree(unpackedApp, 'APPX staging')
 
@@ -600,8 +539,6 @@ async function main() {
       sha256: await hashFile(artifactPath),
     })
   }
-<<<<<<< Updated upstream
-=======
   const finalApprovalResult = await validateApproval(root, approvalPath, {
     expectedSource: before,
     expectedBranch: branch,
@@ -610,7 +547,6 @@ async function main() {
   if (finalApprovalResult.sha256 !== approvalResult.sha256) {
     throw new Error('Reviewer approval evidence changed during release.')
   }
->>>>>>> Stashed changes
   const hashPath = path.join(releaseDir, 'SHA256SUMS.txt')
   await writeFile(hashPath, `${artifacts.map((item) => `${item.sha256}  ${path.basename(item.path)}`).join('\n')}\n`)
 
@@ -626,12 +562,18 @@ async function main() {
     runtime: { node: process.version, platform: process.platform, arch: process.arch },
     approval: approvalPath ? {
       path: path.relative(root, approvalPath).replaceAll('\\', '/'),
-      sha256: await hashFile(approvalPath),
+      sha256: approvalResult.sha256,
       verdict: approval.verdict,
-      passed: approval.cases.length,
-      total: approval.cases.length,
+      passed: approval.evidence.reduce((sum, item) => sum + item.passed, 0),
+      total: approval.evidence.reduce((sum, item) => sum + item.total, 0),
     } : undefined,
-    source: before,
+    source: {
+      ...approvalResult.source,
+      fileCount: approvalResult.source.files.length,
+      branch,
+      head: approvalResult.targetCommit,
+      approvalCommit: approvalResult.approvalCommit,
+    },
     buildOutputs: expected,
     verification: {
       oneBuildForBothTargets: true,
@@ -706,7 +648,4 @@ try {
 } catch (error) {
   console.error(`REJECT: ${error instanceof Error ? error.stack : String(error)}`)
   process.exitCode = 1
-} finally {
-  if (lock) await lock.close()
-  await rm(lockPath, { force: true })
 }
