@@ -503,3 +503,7 @@ Karaoke Studio requires screenshot and behavior evidence for every release. Requ
   remains intact and unusable; rejected evidence remains forward-deleted. No release,
   ZIP, install, approval, commit, push, merge, tag, rewrite, or user-artifact deletion
   occurred. Trinity is reviewer-locked; Neo owns the next revision.
+
+- 2026-10-06 exact-commit source approval for `e354cc887f4089c397d7dff628c1d69ed011e930`: **APPROVE**. Parent is `b5d27391e6f922eaf3e018646fa53cc800389cb0`. Branch `main`. Package `0.3.5`, APPX derivation `0.3.5.0`. Protected source is 102 files, aggregate `dee6d0893e94607440f7c83ecfc68defdbf543f14867cf70700e4820510fca99`. Release QA 14/14, focused registry/lock deploy QA 21/21, build passed, icons matched, lock blob `d1be93d`, and the tracked reviewer registry matches the required trailers. This approval does not package, install, sign, or submit. Store identity remains placeholder `KaraokeStudio` / `CN=ms`.
+
+📌 Team update (2026-10-06T13:36:49.447-07:00): Tank approved source `e354cc8` for 0.3.5. Schema-2 approval is `.squad/approvals/release-0.3.5-e354cc8.json`. Packaging still requires `npm run release -- --approval=.squad/approvals/release-0.3.5-e354cc8.json` after this approval commit. — decided by Tank

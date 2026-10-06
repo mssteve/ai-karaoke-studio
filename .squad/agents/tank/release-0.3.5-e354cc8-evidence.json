@@ -1,0 +1,103 @@
+{
+  "kind": "karaoke-release-evidence",
+  "reviewer": {
+    "identity": "Tank",
+    "role": "independent-release-reviewer"
+  },
+  "verdict": "APPROVE",
+  "status": "passed",
+  "passed": 16,
+  "total": 16,
+  "createdAt": "2026-10-06T13:36:49.447-07:00",
+  "targetCommit": "e354cc887f4089c397d7dff628c1d69ed011e930",
+  "parent": "b5d27391e6f922eaf3e018646fa53cc800389cb0",
+  "branch": "main",
+  "packageVersion": "0.3.5",
+  "appxVersion": "0.3.5.0",
+  "source": {
+    "sha256": "dee6d0893e94607440f7c83ecfc68defdbf543f14867cf70700e4820510fca99",
+    "fileCount": 102
+  },
+  "cases": [
+    {
+      "name": "parent",
+      "status": "passed",
+      "detail": "e354cc8 sole parent is b5d27391"
+    },
+    {
+      "name": "branch",
+      "status": "passed",
+      "detail": "main"
+    },
+    {
+      "name": "clean-tree",
+      "status": "passed",
+      "detail": "porcelain empty at review start and after QA/build"
+    },
+    {
+      "name": "versions",
+      "status": "passed",
+      "detail": "package.json and both lock root fields are 0.3.5"
+    },
+    {
+      "name": "appx-version",
+      "status": "passed",
+      "detail": "scripts/release.mjs derives MAJOR.MINOR.PATCH.0"
+    },
+    {
+      "name": "reviewer-registry",
+      "status": "passed",
+      "detail": "tracked schema-1 Tank registry matches required trailers"
+    },
+    {
+      "name": "conflict-markers",
+      "status": "passed",
+      "detail": "no conflict markers in HEAD; protected-source scan covers inventory"
+    },
+    {
+      "name": "protected-source",
+      "status": "passed",
+      "detail": "102 files, dee6d0893e94607440f7c83ecfc68defdbf543f14867cf70700e4820510fca99"
+    },
+    {
+      "name": "release-qa",
+      "status": "passed",
+      "detail": "scripts/qa-release-version.mjs 14/14"
+    },
+    {
+      "name": "deploy-registry-lock-qa",
+      "status": "passed",
+      "detail": "focused qa-deploy-release registry/lock/bypass 21/21"
+    },
+    {
+      "name": "build",
+      "status": "passed",
+      "detail": "npm run build passed for karaoke-studio@0.3.5"
+    },
+    {
+      "name": "icons",
+      "status": "passed",
+      "detail": "PNG and ICO match fresh generation from build/icon.svg"
+    },
+    {
+      "name": "lock-blob",
+      "status": "passed",
+      "detail": "scripts/release-operation-lock.mjs blob d1be93dbae5d91a4be10d0323607bac44dfdcf9a"
+    },
+    {
+      "name": "packager-syntax",
+      "status": "passed",
+      "detail": "scripts/release.mjs parses and rejects direct invocation"
+    },
+    {
+      "name": "release-entry",
+      "status": "passed",
+      "detail": "npm run release is node scripts/release-version.mjs; dist routes through it"
+    },
+    {
+      "name": "gitignore",
+      "status": "passed",
+      "detail": "release lock, capability, and stage paths ignored; no conflict markers"
+    }
+  ]
+}
