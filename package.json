@@ -1,6 +1,6 @@
 {
   "name": "karaoke-studio",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Private, local-AI karaoke creation studio for Windows.",
   "main": "dist-electron/main.js",
   "author": "Karaoke Studio",
