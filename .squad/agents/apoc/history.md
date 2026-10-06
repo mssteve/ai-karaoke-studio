@@ -6,6 +6,16 @@ Karaoke Studio needs deterministic four-mode playback, timed lyrics, and FIFO qu
 
 ## Learnings
 
+### 2026-10-06: Reviewer registry and protected-source conflict scan
+
+- Tank rejected `b5d27391` because `.squad/reviewers.json` was absent from the target and from Git history, committed conflict markers in `.gitignore` were outside the three-file preflight, and release QA still required `0.3.4`.
+- Cypher remains locked out of this release entry. The registry was restored from the committed approval-validation fixture in `scripts/qa-deploy-release.mjs`, which is the identity contract `validateReviewerRegistry` already enforces. It was not invented and was not placed in an approval commit.
+- Schema 1 reviewer: identity `Tank`, role `independent-release-reviewer`, name `Tank Reviewer`, email `tank@squad.local`. Required trailers are exactly `Reviewed-by: Tank <tank@squad.local>` and `Reviewer-Role: independent-release-reviewer`. Allowed committers are that Tank identity and `project-maintainer` / `Karaoke Studio Maintainer` / `maintainer@squad.local`.
+- `assertWorktreeReady` now inventories protected tracked sources through `snapshotProtectedCommit` and rejects conflict markers in every protected path, including `.gitignore` and nested `scripts` files, in both worktree and committed blob bytes, before bump or deploy. The sole completion entry, approval path, and non-zero bump stop are unchanged.
+- Live version assertions now compare worktree `package.json` and both root lockfile version fields with `HEAD`. A real mismatch fails. Explicit `0.3.4` fixture calculations remain fixture-scoped.
+- Focused release QA passed 14/14. `node scripts/release-version.mjs --approval=.squad/approvals/missing.json` exited 3 on the dirty tree and `.gitignore` markers without changing manifest hashes. `git diff --check` passed. Full deploy QA was 168/169 when launched directly by Node; the remaining failure is the pre-existing `npm_execpath` canonical-CLI gate in `installIsolatedDependencies`, not a version assertion.
+- No package, install, version bump, commit, stage, approval, or `.gitignore` edit was performed. Switch still owns marker removal. The registry is not ignored, but it is not tracked until a later source commit.
+
 ### 2026-09-18: Strict playback terminal-state acceptance
 
 - Reproduced the rejected integrity gap: the former near-end gate passed at `playing`, then an absent `[role="alert"]` snapshot created three renderer exceptions while claiming no visible error.

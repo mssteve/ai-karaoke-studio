@@ -70,9 +70,9 @@ service-account*.json
 *.crt
 *.p7b
 
-# Logs, diagnostics, and temporary files
-<<<<<<< Updated upstream
-=======
+# Release locks, one-use capabilities, and owned scratch stages.
+# Nested dependency, cache, and runtime trees live under .release-source-*.
+# These rules must not match tracked source, scripts, icons, or approvals.
 /.deploy-release.lock
 /.release.lock
 /.release-capability
@@ -81,7 +81,8 @@ service-account*.json
 /.release-staging-*/
 /.release-backup-*/
 /.qa-approved-*/
->>>>>>> Stashed changes
+
+# Logs, diagnostics, and temporary files
 *.log
 logs/
 npm-debug.log*

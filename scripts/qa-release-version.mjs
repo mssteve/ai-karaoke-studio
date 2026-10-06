@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  assertWorktreeReady,
   completionInstructions,
   deployArguments,
   loadReleaseLock,
@@ -46,8 +47,18 @@ async function fixture(version = '1.2.3') {
     path.join(root, '.squad', 'skills', 'full-windows-store-release', 'SKILL.md'),
     'canonical\n',
   )
+  await writeFile(path.join(root, '.gitignore'), '/.release.lock\n/.release-capability\n/.release-source-*/\n')
   return root
 }
+
+const FIXTURE_PROTECTED_SOURCES = [
+  '.gitignore',
+  '.squad/skills/full-windows-store-release/SKILL.md',
+  'README.md',
+  'package-lock.json',
+  'package.json',
+  'scripts/release.mjs',
+]
 
 function lockModule(overrides = {}) {
   return {
@@ -103,8 +114,31 @@ function ready(root, version, overrides = {}) {
         approval: { packageVersion: version, schemaVersion: 2 },
       })),
       spawnDeploy: overrides.spawnDeploy,
+      listProtectedSources: overrides.listProtectedSources ?? (async () => FIXTURE_PROTECTED_SOURCES),
     },
   }
+}
+
+function showCommittedJson(spec) {
+  const result = spawnSync('git', ['show', spec], { cwd: process.cwd(), encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  return JSON.parse(result.stdout)
+}
+
+async function assertLiveVersionsMatchCommitted() {
+  const headPackage = showCommittedJson('HEAD:package.json')
+  const headLock = showCommittedJson('HEAD:package-lock.json')
+  const version = headPackage.version
+  assert.match(version, /^\d+\.\d+\.\d+$/)
+  assert.equal(headLock.version, version)
+  assert.equal(headLock.packages[''].version, version)
+  const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8'))
+  const packageLock = JSON.parse(await readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8'))
+  assert.equal(packageJson.version, version, 'worktree package.json version drifted from HEAD')
+  assert.equal(packageLock.version, version, 'worktree package-lock.json version drifted from HEAD')
+  assert.equal(packageLock.packages[''].version, version, 'worktree lock root version drifted from HEAD')
+  assert.notEqual(nextReleaseVersion(version, 'patch'), version)
+  return version
 }
 
 test('completion requires an approval path and forwards build without a bump', () => {
@@ -336,7 +370,7 @@ test('package script wiring is the sole release entry and does not recurse', asy
   assert.equal(packageJson.scripts.release, 'node scripts/release-version.mjs')
   assert.equal(packageJson.scripts.dist, 'npm run release --')
   assert.equal(packageJson.scripts['dist:store'], 'npm run release --')
-  assert.equal(packageJson.version, '0.3.4')
+  await assertLiveVersionsMatchCommitted()
   const source = await readFile(path.join(process.cwd(), 'scripts', 'release-version.mjs'), 'utf8')
   assert.equal(source.includes('scripts/deploy-release.mjs'), true)
   assert.equal(source.includes('npm run release'), true)
@@ -350,7 +384,7 @@ test('package script wiring is the sole release entry and does not recurse', asy
   assert.equal(typeof lock.acquireOperationLock, 'function')
 })
 
-test('command fails closed on invalid args and conflicted approval without changing 0.3.4', async () => {
+test('command fails closed on invalid args and conflicted approval without changing the committed version', async () => {
   const packagePath = path.join(process.cwd(), 'package.json')
   const lockPath = path.join(process.cwd(), 'package-lock.json')
   const packageBefore = await readFile(packagePath)
@@ -375,9 +409,106 @@ test('command fails closed on invalid args and conflicted approval without chang
   }
   assert.deepEqual(await readFile(packagePath), packageBefore)
   assert.deepEqual(await readFile(lockPath), lockBefore)
+  const version = await assertLiveVersionsMatchCommitted()
   const packageJson = JSON.parse(packageBefore.toString('utf8'))
   const packageLock = JSON.parse(lockBefore.toString('utf8'))
-  assert.equal(packageJson.version, '0.3.4')
-  assert.equal(packageLock.version, '0.3.4')
-  assert.equal(packageLock.packages[''].version, '0.3.4')
+  assert.equal(packageJson.version, version)
+  assert.equal(packageLock.version, version)
+  assert.equal(packageLock.packages[''].version, version)
+})
+
+test('canonical reviewer registry matches approval validation identities and is not ignored', async () => {
+  const registry = JSON.parse(await readFile(path.join(process.cwd(), '.squad', 'reviewers.json'), 'utf8'))
+  assert.equal(registry.schemaVersion, 1)
+  assert.deepEqual(registry.reviewers, [{
+    identity: 'Tank',
+    role: 'independent-release-reviewer',
+    name: 'Tank Reviewer',
+    email: 'tank@squad.local',
+  }])
+  assert.equal(registry.approvalPolicy.reviewerIdentity, 'Tank')
+  assert.equal(registry.approvalPolicy.requiredTrailers['Reviewed-by'], 'Tank <tank@squad.local>')
+  assert.equal(registry.approvalPolicy.requiredTrailers['Reviewer-Role'], 'independent-release-reviewer')
+  assert.deepEqual(registry.approvalPolicy.allowedCommitters, [
+    { identity: 'Tank', name: 'Tank Reviewer', email: 'tank@squad.local' },
+    {
+      identity: 'project-maintainer',
+      name: 'Karaoke Studio Maintainer',
+      email: 'maintainer@squad.local',
+    },
+  ])
+  const ignored = spawnSync('git', ['check-ignore', '--quiet', '--', '.squad/reviewers.json'], {
+    cwd: process.cwd(),
+  })
+  assert.equal(ignored.status, 1)
+  const verification = await readFile(path.join(process.cwd(), 'scripts', 'release-artifact-verification.mjs'), 'utf8')
+  assert.match(verification, /'\.squad\/reviewers\.json'/)
+  assert.match(verification, /'\.gitignore'/)
+  const entry = await readFile(path.join(process.cwd(), 'scripts', 'release-version.mjs'), 'utf8')
+  assert.match(entry, /snapshotProtectedCommit/)
+  assert.doesNotMatch(entry, /CONFLICT_FILES/)
+})
+
+test('protected-source conflict markers stop bump and package before writes', async () => {
+  const root = await fixture('4.5.6')
+  const before = await readFile(path.join(root, 'package.json'))
+  await writeFile(
+    path.join(root, '.gitignore'),
+    '<<<<<<< Updated upstream\n/.release.lock\n=======\n>>>>>>> Stashed changes\n',
+  )
+  let spawned = false
+  const harness = ready(root, '4.5.6', {
+    spawnDeploy: async () => {
+      spawned = true
+      return { code: 0 }
+    },
+  })
+  await assert.rejects(
+    runRelease(['--bump=patch'], harness.dependencies),
+    /\.gitignore contains unresolved conflict markers/,
+  )
+  await assert.rejects(
+    runRelease([`--approval=${approval}`], harness.dependencies),
+    /\.gitignore contains unresolved conflict markers/,
+  )
+  assert.equal(harness.acquired(), 0)
+  assert.equal(spawned, false)
+  assert.deepEqual(await readFile(path.join(root, 'package.json')), before)
+})
+
+async function committedMarkerRepository(relative, contents) {
+  const root = await fixture('1.2.3')
+  await mkdir(path.join(root, '.git'), { recursive: true })
+  await rm(path.join(root, '.git'), { recursive: true, force: true })
+  const git = (args) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 0, `${args.join(' ')} => ${result.stderr}`)
+  }
+  git(['init', '--quiet'])
+  git(['config', 'user.email', 'qa@example.invalid'])
+  git(['config', 'user.name', 'Release Author'])
+  await mkdir(path.dirname(path.join(root, ...relative.split('/'))), { recursive: true })
+  await writeFile(path.join(root, ...relative.split('/')), contents)
+  git(['add', '.'])
+  git(['commit', '--quiet', '-m', 'fixture'])
+  return root
+}
+
+test('committed protected-source markers fail before deploy through the shared inventory', async () => {
+  const gitignore = await committedMarkerRepository(
+    '.gitignore',
+    '<<<<<<< Updated upstream\n/.release.lock\n=======\n>>>>>>> Stashed changes\n',
+  )
+  await assert.rejects(assertWorktreeReady(gitignore), /\.gitignore contains unresolved conflict markers/)
+  const nested = await committedMarkerRepository(
+    'scripts/nested-protected.txt',
+    'clean\n<<<<<<< ours\n=======\n>>>>>>> theirs\n',
+  )
+  await assert.rejects(
+    assertWorktreeReady(nested),
+    /scripts\/nested-protected\.txt contains unresolved conflict markers/,
+  )
+  const packageBefore = await readFile(path.join(nested, 'package.json'))
+  await assert.rejects(runRelease(['--bump=patch'], { root: nested }), /conflict markers/)
+  assert.deepEqual(await readFile(path.join(nested, 'package.json')), packageBefore)
 })

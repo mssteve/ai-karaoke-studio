@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "reviewers": [
+    {
+      "identity": "Tank",
+      "role": "independent-release-reviewer",
+      "name": "Tank Reviewer",
+      "email": "tank@squad.local"
+    }
+  ],
+  "approvalPolicy": {
+    "reviewerIdentity": "Tank",
+    "requiredTrailers": {
+      "Reviewed-by": "Tank <tank@squad.local>",
+      "Reviewer-Role": "independent-release-reviewer"
+    },
+    "allowedCommitters": [
+      {
+        "identity": "Tank",
+        "name": "Tank Reviewer",
+        "email": "tank@squad.local"
+      },
+      {
+        "identity": "project-maintainer",
+        "name": "Karaoke Studio Maintainer",
+        "email": "maintainer@squad.local"
+      }
+    ]
+  }
+}

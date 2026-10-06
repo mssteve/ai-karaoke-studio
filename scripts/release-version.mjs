@@ -2,15 +2,11 @@ import { spawn, spawnSync } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { snapshotProtectedCommit } from './release-artifact-verification.mjs'
 
 const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BUMP_KINDS = new Set(['major', 'minor', 'patch'])
 export const RESTORED_LOCK_BLOB = 'd1be93dbae5d91a4be10d0323607bac44dfdcf9a'
-const CONFLICT_FILES = [
-  'scripts/release.mjs',
-  'README.md',
-  '.squad/skills/full-windows-store-release/SKILL.md',
-]
 const CONFLICT_MARKER = /^[ \t]*(?:<{7}|={7}|>{7})(?:[ \t]|$)/m
 const REQUIRED_LOCK_EXPORTS = [
   'ReleaseLockError',
@@ -255,6 +251,50 @@ export function checkScriptParses(root, relative = 'scripts/release.mjs') {
   }
 }
 
+function hasConflictMarker(text) {
+  return CONFLICT_MARKER.test(String(text))
+}
+
+function normalizeProtectedPath(relative) {
+  const normalized = String(relative ?? '').replaceAll('\\', '/')
+  if (!normalized || path.win32.isAbsolute(normalized) || path.posix.isAbsolute(normalized)
+    || normalized.includes('\0') || normalized.includes(':')
+    || normalized.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new ReleaseVersionError('Protected source inventory contains an unsafe path.', 3)
+  }
+  return normalized
+}
+
+async function listProtectedReleaseSources(root, dependencies) {
+  if (typeof dependencies.listProtectedSources === 'function') {
+    const listed = await dependencies.listProtectedSources(root)
+    if (!Array.isArray(listed)) {
+      throw new ReleaseVersionError('Protected source inventory is invalid.', 3)
+    }
+    return listed.map(normalizeProtectedPath)
+  }
+  const snapshot = await snapshotProtectedCommit(root, 'HEAD')
+  if (!snapshot || !Array.isArray(snapshot.files)) {
+    throw new ReleaseVersionError('Protected source inventory is invalid.', 3)
+  }
+  return snapshot.files.map((file) => normalizeProtectedPath(file.path))
+}
+
+function readCommittedBlob(root, relative) {
+  const result = spawnSync('git', ['cat-file', 'blob', `HEAD:${relative}`], {
+    cwd: root,
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (result.status !== 0) {
+    throw new ReleaseVersionError(
+      (result.stderr || `Committed protected source could not be read: ${relative}`).toString().trim(),
+      3,
+    )
+  }
+  return Buffer.from(result.stdout ?? []).toString('utf8')
+}
+
 export async function assertWorktreeReady(root, dependencies = {}) {
   const git = dependencies.git ?? defaultGit
   const read = dependencies.readFile ?? readFile
@@ -272,16 +312,41 @@ export async function assertWorktreeReady(root, dependencies = {}) {
     blockers.push(`Git worktree status could not be proven clean: ${error.message}`)
   }
   let releaseHasMarker = false
-  for (const relative of CONFLICT_FILES) {
-    try {
-      const text = await read(path.join(root, relative), 'utf8')
-      if (CONFLICT_MARKER.test(text)) {
+  let protectedPaths = []
+  let inventoryFailed = false
+  try {
+    protectedPaths = await listProtectedReleaseSources(root, dependencies)
+    if (protectedPaths.length === 0) {
+      blockers.push('Protected source inventory is empty, so conflict markers cannot be ruled out.')
+      inventoryFailed = true
+    }
+  } catch (error) {
+    blockers.push(`Protected source inventory could not be read: ${error.message}`)
+    inventoryFailed = true
+  }
+  const scanCommittedBlobs = typeof dependencies.listProtectedSources !== 'function'
+  if (!inventoryFailed) {
+    for (const relative of protectedPaths) {
+      let marked = false
+      try {
+        const text = await read(path.join(root, ...relative.split('/')), 'utf8')
+        if (hasConflictMarker(text)) marked = true
+      } catch {
+        blockers.push(`${relative} cannot be read, so release cannot start.`)
+        if (relative === 'scripts/release.mjs') releaseHasMarker = true
+      }
+      if (scanCommittedBlobs) {
+        try {
+          if (hasConflictMarker(readCommittedBlob(root, relative))) marked = true
+        } catch (error) {
+          blockers.push(`${relative} committed bytes cannot be read, so release cannot start: ${error.message}`)
+          if (relative === 'scripts/release.mjs') releaseHasMarker = true
+        }
+      }
+      if (marked) {
         blockers.push(`${relative} contains unresolved conflict markers.`)
         if (relative === 'scripts/release.mjs') releaseHasMarker = true
       }
-    } catch {
-      blockers.push(`${relative} cannot be read, so release cannot start.`)
-      if (relative === 'scripts/release.mjs') releaseHasMarker = true
     }
   }
   if (!releaseHasMarker) {
