@@ -1,5 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { readFile, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  link,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { snapshotProtectedCommit } from './release-artifact-verification.mjs'
@@ -36,11 +46,13 @@ export class ReleaseVersionError extends Error {
 
 export function completionInstructions() {
   return [
-    'npm run release did not complete a release.',
-    'The only exit-0 release path is a fresh schema-2 approval of the already versioned source:',
+    'npm run release builds the Windows NSIS setup into release/<version>/ and links it at release/.',
+    '  npm run release',
+    'That rebuilds the app and packages the setup. It does not bump versions or require an approval file.',
+    'The approval-gated store workflow remains:',
     '  npm run release -- --approval=.squad/approvals/<approval>.json',
-    'That routes through the canonical deploy workflow, builds NSIS and APPX, and does not change package versions.',
-    'Optional --zip or --install may be added to that same command and still require the same approval.',
+    'That builds NSIS and APPX and does not change package versions.',
+    'Optional --zip or --install may be added only with that explicit approval.',
     'To prepare a future version without packaging:',
     '  npm run release -- --bump=patch',
     'Preparation exits non-zero, does not package, and is not release completion.',
@@ -160,8 +172,10 @@ export function parseReleaseArguments(argv) {
       '--build, --zip, --install, and --dry-run require --approval=.squad/approvals/<approval>.json.',
     )
   }
-  if (!bump && !approval) throw new ReleaseVersionError(completionInstructions())
   if (bump) return { mode: 'bump', bump }
+  if (!approval) {
+    return { mode: 'package', approval: null, dryRun: false, zip: false, install: false, build: true }
+  }
   return {
     mode: 'package',
     approval,
@@ -465,8 +479,9 @@ function bumpResultText(version) {
     `Prepared package version ${version}.`,
     'No package was released.',
     'This command exits non-zero because version preparation is not release completion.',
-    'Commit this version, then obtain a fresh schema-2 approval whose sole parent is that exact source.',
-    'Complete the release only with:',
+    'Build the current Windows setup with:',
+    '  npm run release',
+    'Store packaging still requires a fresh schema-2 approval:',
     '  npm run release -- --approval=.squad/approvals/<approval>.json',
   ].join('\n')
 }
@@ -504,6 +519,90 @@ async function runBump(root, kind, dependencies) {
   } finally {
     await handle.release()
   }
+}
+
+const APPROVAL_COMMIT_PREFIXES = [
+  '.squad/approvals/',
+  '.squad/agents/tank/',
+  '.squad/decisions/inbox/',
+]
+const APPROVAL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+function committedApprovalCandidate(relative) {
+  const normalized = String(relative ?? '').replaceAll('\\', '/')
+  if (!normalized.startsWith('.squad/approvals/') || !normalized.endsWith('.json')
+    || normalized.includes('\0') || normalized.includes('..') || normalized.includes(':')
+    || normalized.includes('//')) {
+    return null
+  }
+  const base = normalized.slice('.squad/approvals/'.length)
+  return {
+    path: normalized,
+    canonical: /^[A-Za-z0-9._-]+\.json$/.test(base),
+  }
+}
+
+export async function discoverCanonicalApproval(root, dependencies = {}) {
+  const git = dependencies.git ?? defaultGit
+  const now = dependencies.now ?? new Date()
+  const head = await git(root, ['rev-parse', 'HEAD'])
+  if (!/^[0-9a-f]{40}$/i.test(head)) {
+    throw new ReleaseVersionError('HEAD is not a valid approval commit.', 3)
+  }
+  const parents = (await git(root, ['rev-list', '--parents', '-n', '1', 'HEAD']))
+    .split(/\s+/).slice(1).filter(Boolean)
+  if (parents.length !== 1 || !/^[0-9a-f]{40}$/i.test(parents[0])) {
+    throw new ReleaseVersionError('HEAD is not a valid approval-only child commit.', 3)
+  }
+  const parent = parents[0].toLowerCase()
+  const changed = (await git(root, [
+    'diff-tree', '--no-commit-id', '--name-only', '-r', parent, 'HEAD',
+  ])).split(/\r?\n/).filter(Boolean)
+  if (!changed.length || changed.some((entry) =>
+    entry.includes('\\') || entry.includes('..')
+    || !APPROVAL_COMMIT_PREFIXES.some((prefix) => entry.replaceAll('\\', '/').startsWith(prefix)))) {
+    throw new ReleaseVersionError('HEAD is not a valid approval-only child commit.', 3)
+  }
+  const listed = await git(root, [
+    'ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', '.squad/approvals',
+  ])
+  const candidates = listed.split('\0').filter(Boolean).map(committedApprovalCandidate).filter(Boolean)
+  if (candidates.length === 0) {
+    throw new ReleaseVersionError('No canonical approval is committed in HEAD.', 3)
+  }
+  if (candidates.length !== 1 || !candidates[0].canonical) {
+    throw new ReleaseVersionError('Multiple or non-canonical candidate approvals are committed in HEAD.', 3)
+  }
+  const approvalPath = normalizeApprovalPath(candidates[0].path)
+  let approval
+  try {
+    approval = JSON.parse(await git(root, ['show', `HEAD:${approvalPath}`]))
+  } catch (error) {
+    if (error instanceof ReleaseVersionError) throw error
+    throw new ReleaseVersionError('Committed approval is stale or mismatched.', 3)
+  }
+  const committed = await readCommittedVersions(root, git)
+  const branch = await git(root, ['branch', '--show-current'])
+  const createdAt = Date.parse(approval?.createdAt)
+  const expiresAt = Date.parse(approval?.expiresAt)
+  const current = now.getTime()
+  const versionMatches = approval?.packageVersion
+    && approval.packageVersion === committed.packageJson
+    && committed.lockfile === approval.packageVersion
+    && committed.lockRoot === approval.packageVersion
+    && approval.appxVersion === `${approval.packageVersion}.0`
+  const fresh = Number.isFinite(createdAt) && Number.isFinite(expiresAt)
+    && createdAt <= current + 60_000 && expiresAt > createdAt && current <= expiresAt
+    && current - createdAt <= APPROVAL_MAX_AGE_MS
+  if (approval?.schemaVersion !== 2 || approval?.kind !== 'karaoke-release-approval'
+    || approval?.verdict !== 'APPROVE' || !versionMatches || !branch
+    || approval.branch !== branch || !fresh) {
+    throw new ReleaseVersionError('Committed approval is stale or mismatched.', 3)
+  }
+  if (String(approval.targetCommit ?? '').toLowerCase() !== parent) {
+    throw new ReleaseVersionError('Committed approval does not bind the sole parent target.', 3)
+  }
+  return approvalPath
 }
 
 async function readCommittedVersions(root, git) {
@@ -548,9 +647,13 @@ async function runPackage(root, options, dependencies) {
     const imported = await import('./release-artifact-verification.mjs')
     return imported.validateApproval(root, approvalPath)
   })
+  let approvalPath = options.approval
+  if (!approvalPath) {
+    approvalPath = await discoverCanonicalApproval(root, { git, now: dependencies.now })
+  }
   let approvalResult
   try {
-    approvalResult = await validate(options.approval, root)
+    approvalResult = await validate(approvalPath, root)
   } catch (error) {
     if (error instanceof ReleaseVersionError) throw error
     throw new ReleaseVersionError(error.message, error.exitCode ?? 5)
@@ -566,7 +669,7 @@ async function runPackage(root, options, dependencies) {
   }
   const packageBefore = await read(path.join(root, 'package.json'))
   const lockBefore = await read(path.join(root, 'package-lock.json'))
-  const args = deployArguments(options)
+  const args = deployArguments({ ...options, approval: approvalPath })
   const spawnDeploy = dependencies.spawnDeploy ?? (
     (deployArgs) => spawnCanonicalDeploy(root, deployArgs, releaseChildEnv(dependencies.env))
   )
@@ -614,10 +717,159 @@ async function runPackage(root, options, dependencies) {
   }
 }
 
+const MIN_SETUP_BYTES = 1024 * 1024
+
+function runInherited(command, args, cwd, env = process.env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      stdio: 'inherit',
+      windowsHide: true,
+    })
+    child.on('error', reject)
+    child.on('close', (code) => code === 0
+      ? resolve()
+      : reject(new Error(`${path.basename(command)} ${args.join(' ')} exited with code ${code}.`)))
+  })
+}
+
+export async function defaultRunSetupBuild(request) {
+  const { root, outputRelative, setupName } = request
+  const node = process.execPath
+  const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')
+  const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
+  const builder = path.join(root, 'node_modules', 'electron-builder', 'cli.js')
+  console.log(`Building ${setupName} into ${outputRelative}`)
+  await runInherited(node, [path.join(root, 'scripts', 'clean.mjs')], root)
+  await runInherited(node, [tsc, '-b'], root)
+  await runInherited(node, [vite, 'build'], root)
+  await runInherited(node, [tsc, '-p', 'tsconfig.electron.json'], root)
+  await runInherited(node, [
+    builder,
+    '--win', 'nsis',
+    '--x64',
+    '--publish', 'never',
+    `--config.directories.output=${outputRelative}`,
+  ], root, {
+    ...process.env,
+    CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+  })
+}
+
+async function readExecutableHeader(filePath) {
+  const handle = await open(filePath, 'r')
+  try {
+    const header = Buffer.alloc(2)
+    const result = await handle.read(header, 0, 2, 0)
+    if (result.bytesRead < 2) return ''
+    return header.toString('ascii')
+  } finally {
+    await handle.close()
+  }
+}
+
+async function locateSetup(outputDir, setupName) {
+  const expected = path.join(outputDir, setupName)
+  try {
+    const info = await stat(expected)
+    if (info.isFile()) return expected
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  let entries = []
+  try {
+    entries = await readdir(outputDir)
+  } catch (error) {
+    if (error.code === 'ENOENT') return expected
+    throw error
+  }
+  const match = entries.find((name) => /setup/i.test(name) && name.toLowerCase().endsWith('.exe'))
+  return match ? path.join(outputDir, match) : expected
+}
+
+export async function buildLocalSetup(root, dependencies = {}) {
+  const read = dependencies.readFile ?? readFile
+  let packageJson
+  try {
+    packageJson = JSON.parse((await read(path.join(root, 'package.json'))).toString('utf8'))
+  } catch (error) {
+    throw new ReleaseVersionError(`Cannot read package.json for setup build: ${error.message}`, 3)
+  }
+  const version = packageJson.version
+  if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) {
+    throw new ReleaseVersionError(`Cannot build a setup for version ${version}.`, 3)
+  }
+  const productName = packageJson.build?.productName || 'Karaoke Studio'
+  if (/[<>:"/\\|?*\u0000]/.test(productName)) {
+    throw new ReleaseVersionError('Product name cannot be used in a setup filename.', 3)
+  }
+  const setupName = `${productName}-Setup-${version}.exe`
+  const outputRelative = `release/${version}`
+  const outputDir = path.join(root, 'release', version)
+  const setupPath = path.join(outputDir, setupName)
+  const run = dependencies.runSetupBuild ?? defaultRunSetupBuild
+  try {
+    await run({
+      root,
+      version,
+      outputDir,
+      outputRelative,
+      setupName,
+      setupPath,
+      packageJson,
+    })
+  } catch (error) {
+    if (error instanceof ReleaseVersionError) throw error
+    throw new ReleaseVersionError(`Setup build failed: ${error.message}`, error.exitCode ?? 1)
+  }
+  const produced = await locateSetup(outputDir, setupName)
+  let info
+  try {
+    info = await stat(produced)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    throw new ReleaseVersionError(`Setup was not written to ${outputRelative}/${setupName}.`, 1)
+  }
+  const relativeSetup = `${outputRelative}/${path.basename(produced)}`
+  if (!info.isFile() || info.size < MIN_SETUP_BYTES) {
+    throw new ReleaseVersionError(`Setup at ${relativeSetup} is missing or too small.`, 1)
+  }
+  if (await readExecutableHeader(produced) !== 'MZ') {
+    throw new ReleaseVersionError(`Setup at ${relativeSetup} is not a Windows executable.`, 1)
+  }
+  const topLevel = path.join(root, 'release', setupName)
+  let linked = false
+  try {
+    await mkdir(path.dirname(topLevel), { recursive: true })
+    await rm(topLevel, { force: true })
+    await link(produced, topLevel)
+    linked = true
+  } catch {
+    try {
+      await copyFile(produced, topLevel)
+      linked = true
+    } catch {
+      linked = false
+    }
+  }
+  const lines = [`Built ${relativeSetup}.`]
+  if (linked) lines.push(`Setup is also available at release/${setupName}.`)
+  else lines.push(`Could not link release/${setupName}; use ${relativeSetup}.`)
+  return {
+    code: 0,
+    packaged: true,
+    version,
+    setupPath: relativeSetup,
+    text: lines.join('\n'),
+  }
+}
+
 export async function runRelease(argv = [], dependencies = {}) {
   const root = path.resolve(dependencies.root ?? moduleRoot)
   const options = parseReleaseArguments(argv)
   if (options.mode === 'bump') return runBump(root, options.bump, dependencies)
+  if (!options.approval) return buildLocalSetup(root, dependencies)
   return runPackage(root, options, dependencies)
 }
 

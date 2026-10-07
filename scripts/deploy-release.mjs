@@ -22,6 +22,7 @@ import {
   compareSnapshots,
   hashFile,
   readPackageMetadata,
+  releaseVersionDirectory,
   snapshotProtectedSources,
   snapshotTree,
   validateApproval,
@@ -478,6 +479,47 @@ export async function atomicPromote(staged, live, token, deps = {}) {
   }
 }
 
+async function assertReplaceableVersionFolder(live, version) {
+  let info
+  try {
+    info = await lstat(live)
+  } catch (error) {
+    if (error.code === 'ENOENT') return
+    throw error
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    fail('Refusing to replace a non-directory release version path.', EXIT.PROMOTION)
+  }
+  let provenance
+  try {
+    provenance = JSON.parse(await readFile(path.join(live, 'provenance.json'), 'utf8'))
+  } catch (error) {
+    if (error.code === 'ENOENT') return
+    fail('Refusing to replace a release version with unreadable provenance.', EXIT.PROMOTION)
+  }
+  if (provenance?.verdict === 'APPROVE') {
+    fail(`Refusing to overwrite approved release ${version}.`, EXIT.PROMOTION)
+  }
+  if (provenance?.packageVersion && provenance.packageVersion !== version) {
+    fail('Refusing to replace a release folder for a different package version.', EXIT.PROMOTION)
+  }
+}
+
+export async function promoteOwnedRelease(staging, root, version, token, deps = {}) {
+  const live = releaseVersionDirectory(root, version)
+  const resolvedRoot = path.resolve(root)
+  const resolvedStaging = path.resolve(staging)
+  if (path.dirname(resolvedStaging) !== resolvedRoot
+    || !path.basename(resolvedStaging).startsWith('.release-staging-')
+    || !path.basename(resolvedStaging).includes(token)) {
+    fail('Refusing to promote a path that is not an owned release stage.', EXIT.PROMOTION)
+  }
+  await mkdir(path.dirname(live), { recursive: true })
+  await assertReplaceableVersionFolder(live, version)
+  await atomicPromote(resolvedStaging, live, token, deps)
+  return live
+}
+
 function friendReadme(version, installerName, sha256) {
   return [
     `Karaoke Studio ${version} Friend Test`,
@@ -846,7 +888,7 @@ async function buildRelease(context, approvalPath) {
       requireCurrentSource: true,
     })
     compareSnapshots(context.sourceSnapshot, await snapshotProtectedSources(context.root))
-    await atomicPromote(staging, path.join(context.root, 'release'), context.token)
+    await promoteOwnedRelease(staging, context.root, context.version, context.token)
     return verifyApprovedRelease({ root: context.root })
   } catch (error) {
     await rm(capabilityPath, { force: true })
@@ -901,7 +943,12 @@ export async function runDeploy(options, dependencies = {}) {
   context.sourceSnapshot = sourceSnapshot
   context.source = source
   context.version = version
-  const releaseDir = path.join(root, 'release')
+  let releaseDir
+  try {
+    releaseDir = releaseVersionDirectory(root, version)
+  } catch (error) {
+    fail(error.message, EXIT.SOURCE)
+  }
   const zipPath = path.join(root, 'zip', `Karaoke-Studio-${version}-Friend-Test.zip`)
   const installExe = dependencies.installExe
     ?? path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Karaoke Studio', 'Karaoke Studio.exe')

@@ -20,6 +20,7 @@ import {
   consumeReleaseCapability,
 } from './release-operation-lock.mjs'
 import {
+  releaseVersionDirectory,
   snapshotProtectedSources,
   validateApproval,
 } from './release-artifact-verification.mjs'
@@ -59,6 +60,15 @@ const ALLOWED_STAGE_OUTPUTS = [
   '.release-dependency-cache',
   '.release-runtime',
 ]
+
+function promotedReleasePath(absolutePath) {
+  releaseVersionDirectory(root, packageJson.version)
+  const relative = path.relative(releaseDir, absolutePath).replaceAll('\\', '/')
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Release evidence escaped the owned staging directory.')
+  }
+  return `release/${packageJson.version}/${relative}`
+}
 
 function run(command, args, cwd = root, env = process.env) {
   return new Promise((resolve, reject) => {
@@ -247,7 +257,7 @@ async function verifyPackagedDemucs(appDir, label) {
       ...result.fixture,
       path: path.relative(root, result.fixture.path).replaceAll('\\', '/'),
     },
-    evidencePath: path.relative(root, path.join(evidenceDir, 'report.json')).replaceAll('\\', '/'),
+    evidencePath: promotedReleasePath(path.join(evidenceDir, 'report.json')),
   }
 }
 
@@ -347,6 +357,12 @@ async function main() {
   delete process.env.KARAOKE_RELEASE_CAPABILITY_PATH
   delete process.env.KARAOKE_RELEASE_CAPABILITY_NONCE
   delete process.env.KARAOKE_RELEASE_LOCK_TOKEN
+  if (!configuredReleaseDir || path.dirname(releaseDir) !== root
+    || !path.basename(releaseDir).startsWith('.release-staging-')) {
+    throw new Error(
+      'KARAOKE_RELEASE_DIR must be an owned staging directory directly under the repository root.',
+    )
+  }
   if (!sourceDir || path.dirname(sourceDir) !== root
     || !path.basename(sourceDir).startsWith('.release-source-')) {
     throw new Error(
@@ -534,7 +550,7 @@ async function main() {
   for (const artifactPath of [exePath, appxPath]) {
     const info = await stat(artifactPath)
     artifacts.push({
-      path: path.relative(root, artifactPath).replaceAll('\\', '/'),
+      path: promotedReleasePath(artifactPath),
       bytes: info.size,
       sha256: await hashFile(artifactPath),
     })
@@ -633,7 +649,7 @@ async function main() {
       },
     },
     artifacts,
-    hashesPath: path.relative(root, hashPath).replaceAll('\\', '/'),
+    hashesPath: promotedReleasePath(hashPath),
   }
   const reportPath = path.join(releaseDir, 'provenance.json')
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)

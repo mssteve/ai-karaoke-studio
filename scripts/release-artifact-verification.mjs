@@ -34,6 +34,20 @@ export async function readPackageMetadata(root) {
   return { packageJson, packageLock, version: packageJson.version }
 }
 
+export const PACKAGE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/
+
+export function releaseVersionDirectory(root, version) {
+  if (!PACKAGE_VERSION_PATTERN.test(version)) {
+    throw new ArtifactVerificationError('Release version folder is not a safe package version.')
+  }
+  const releaseRoot = path.resolve(root, 'release')
+  const versionDir = path.resolve(releaseRoot, version)
+  if (path.dirname(versionDir) !== releaseRoot || path.basename(versionDir) !== version) {
+    throw new ArtifactVerificationError('Release version folder escapes the release directory.')
+  }
+  return versionDir
+}
+
 function captured(command, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -326,14 +340,61 @@ async function assertSafeCommittedFileAttributes(root, relative, commit, label) 
   return committed
 }
 
-function allowedWorktreeContent(blob, attributes) {
-  if (attributes.get('text') === 'unset' || attributes.get('eol') === 'lf') return blob
-  const bytes = []
-  for (let index = 0; index < blob.length; index += 1) {
-    if (blob[index] === 0x0a && (index === 0 || blob[index - 1] !== 0x0d)) bytes.push(0x0d)
-    bytes.push(blob[index])
+function textNormalizationAuthorized(attributes) {
+  return attributes.get('text') === 'set'
+    && (attributes.get('eol') === 'lf' || attributes.get('eol') === 'crlf')
+    && attributes.get('filter') === 'unset'
+    && attributes.get('ident') === 'unset'
+    && attributes.get('working-tree-encoding') === 'unset'
+}
+
+function isLfCanonicalText(blob) {
+  return !blob.includes(0x00) && !blob.includes(0x0d)
+}
+
+function uniformCrlfCheckout(blob) {
+  let lineFeeds = 0
+  for (const byte of blob) if (byte === 0x0a) lineFeeds += 1
+  const checkout = Buffer.allocUnsafe(blob.length + lineFeeds)
+  let offset = 0
+  for (const byte of blob) {
+    if (byte === 0x0a) checkout[offset++] = 0x0d
+    checkout[offset++] = byte
   }
-  return Buffer.from(bytes)
+  return checkout
+}
+
+function worktreeMatchesCommittedBlob(content, blob, attributes) {
+  if (!textNormalizationAuthorized(attributes)) return content.equals(blob)
+  if (!isLfCanonicalText(blob)) return false
+  return content.equals(blob) || content.equals(uniformCrlfCheckout(blob))
+}
+
+function worktreeMismatchReason(content, blob, attributes) {
+  if (!textNormalizationAuthorized(attributes) || !isLfCanonicalText(blob)) {
+    return 'content differs from committed bytes'
+  }
+  let crlf = 0
+  let loneCr = 0
+  let bareLf = 0
+  let doubledCr = false
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] !== 0x0d) {
+      if (content[index] === 0x0a) bareLf += 1
+      continue
+    }
+    if (content[index + 1] === 0x0d) doubledCr = true
+    if (content[index + 1] === 0x0a) {
+      crlf += 1
+      index += 1
+    } else {
+      loneCr += 1
+    }
+  }
+  if (doubledCr) return 'malformed EOL conversion'
+  if (crlf > 0 && bareLf > 0) return 'mixed EOL'
+  if (loneCr > 0) return 'lone CR'
+  return 'content differs from the authorized checkout'
 }
 
 async function exactPhysicalFile(root, relative, label) {
@@ -383,9 +444,14 @@ async function readValidatedWorktreeFile(root, relative, label, blob, attributes
     || Math.trunc(after.mtimeMs) !== Math.trunc(physical.info.mtimeMs)) {
     throw new ArtifactVerificationError(`${label} changed while it was being validated: ${relative}.`)
   }
-  if (!content.equals(allowedWorktreeContent(blob, attributes))) {
+  if (textNormalizationAuthorized(attributes) && !isLfCanonicalText(blob)) {
     throw new ArtifactVerificationError(
-      `${label} physical bytes differ from committed content: ${relative}.`,
+      `${label} committed text is not LF-canonical: ${relative}.`,
+    )
+  }
+  if (!worktreeMatchesCommittedBlob(content, blob, attributes)) {
+    throw new ArtifactVerificationError(
+      `${label} physical bytes differ from committed content (${worktreeMismatchReason(content, blob, attributes)}): ${relative}.`,
     )
   }
   return {
@@ -779,6 +845,7 @@ async function assertProtectedWorktree(root, commit, treeEntries) {
   const drivers = await configuredFilterDrivers(root)
   const attributeFile = await committedAttributeFile(root, commit)
   const worktree = new Map()
+  const mismatches = []
   for (const entry of treeEntries) {
     const committed = parseCommittedAttributePolicy(
       attributeFile, entry.path, `Protected source ${entry.path}`,
@@ -800,14 +867,30 @@ async function assertProtectedWorktree(root, commit, treeEntries) {
       )
     }
     const blob = await capturedBuffer('git', ['cat-file', 'blob', entry.objectId], root)
-    const physical = await readValidatedWorktreeFile(
-      root, entry.path, 'Protected source', blob, committed,
-    )
+    let physical
+    try {
+      physical = await readValidatedWorktreeFile(
+        root, entry.path, 'Protected source', blob, committed,
+      )
+    } catch (error) {
+      if (!(error instanceof ArtifactVerificationError)
+        || (!error.message.includes('physical bytes differ from committed content')
+          && !error.message.includes('committed text is not LF-canonical'))) {
+        throw error
+      }
+      mismatches.push(error.message)
+      continue
+    }
     worktree.set(entry.path, {
       worktreeBytes: physical.size,
       worktreeSha256: physical.sha256,
       mtimeMs: physical.mtimeMs,
     })
+  }
+  if (mismatches.length > 0) {
+    throw new ArtifactVerificationError(
+      `Protected source physical bytes differ from committed content (${mismatches.length} file${mismatches.length === 1 ? '' : 's'}):\n${mismatches.join('\n')}`,
+    )
   }
   return worktree
 }
@@ -989,15 +1072,27 @@ async function verifyAsarOutputs(releaseDir, provenance) {
 
 export async function verifyApprovedRelease({
   root,
-  releaseDir = path.join(root, 'release'),
+  releaseDir,
   requireCurrentSource = true,
 }) {
   const { packageJson, version } = await readPackageMetadata(root)
+  const versionDir = releaseVersionDirectory(root, version)
+  const resolvedReleaseDir = releaseDir ? path.resolve(releaseDir) : versionDir
+  const ownedStage = path.dirname(resolvedReleaseDir) === path.resolve(root)
+    && path.basename(resolvedReleaseDir).startsWith('.release-staging-')
+  if (resolvedReleaseDir !== versionDir && !ownedStage) {
+    throw new ArtifactVerificationError(
+      'Release verification must use the version folder or an owned staging directory.',
+    )
+  }
   let provenance
   try {
-    provenance = JSON.parse(await readFile(path.join(releaseDir, 'provenance.json'), 'utf8'))
+    provenance = JSON.parse(await readFile(path.join(resolvedReleaseDir, 'provenance.json'), 'utf8'))
   } catch {
     throw new ArtifactVerificationError('Release provenance is missing or invalid.')
+  }
+  if (provenance.hashesPath !== `release/${version}/SHA256SUMS.txt`) {
+    throw new ArtifactVerificationError('Release hash file is not recorded in the version folder.')
   }
   verifyProvenanceShape(provenance, version)
   if (provenance.approval?.verdict !== 'APPROVE' || !provenance.approval.path
@@ -1029,7 +1124,7 @@ export async function verifyApprovedRelease({
     path.basename(item.path).toLowerCase(),
     item,
   ]))
-  const sums = parseHashFile(await readFile(path.join(releaseDir, 'SHA256SUMS.txt'), 'utf8'))
+  const sums = parseHashFile(await readFile(path.join(resolvedReleaseDir, 'SHA256SUMS.txt'), 'utf8'))
   const verifiedArtifacts = {}
   for (const name of expectedNames) {
     const recorded = artifacts.get(name.toLowerCase())
@@ -1037,7 +1132,10 @@ export async function verifyApprovedRelease({
     if (!recorded || recorded.sha256 !== sum) {
       throw new ArtifactVerificationError(`Provenance/hash identity is missing for ${name}.`)
     }
-    const artifactPath = path.join(releaseDir, name)
+    if (String(recorded.path).replaceAll('\\', '/') !== `release/${version}/${name}`) {
+      throw new ArtifactVerificationError(`${name} is not recorded under release/${version}.`)
+    }
+    const artifactPath = path.join(resolvedReleaseDir, name)
     const info = await stat(artifactPath)
     const actual = await hashFile(artifactPath)
     if (actual !== recorded.sha256 || info.size !== recorded.bytes) {
@@ -1051,7 +1149,7 @@ export async function verifyApprovedRelease({
     }
   }
   await verifyActualAppx(verifiedArtifacts.appx.path, packageJson, version)
-  const staging = await verifyAsarOutputs(releaseDir, provenance)
+  const staging = await verifyAsarOutputs(resolvedReleaseDir, provenance)
   return { packageJson, version, provenance, approval, artifacts: verifiedArtifacts, staging }
 }
 

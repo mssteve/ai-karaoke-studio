@@ -15,8 +15,9 @@ default_for:
 
 Run from `C:\git\karaoke-player`. This is mandatory whenever a user-facing change is
 intended for distribution or anyone asks to update, release, package, ship, publish, or
-prepare a Microsoft Store submission. `npm run build`, an unpacked app, or a single
-installer is never release completion.
+prepare a Microsoft Store submission. Plain `npm run release` builds the local NSIS
+setup into `release/`. Store submission still requires the approval-gated workflow.
+`npm run build` or an unpacked app is not a setup.
 
 For the command-level immutable source/dependency staging procedure, also read and apply
 `.squad\skills\immutable-release-staging\SKILL.md`. Any pipeline, source-selection,
@@ -89,17 +90,21 @@ and then deploy in one process.
 
 ## 3. Canonical Command
 
-There is one public completion entry. Do not invoke electron-builder manually, and do
-not treat `npm run dist`, `npm run dist:store`, or a direct deploy invocation as a
-second public release path:
+Plain `npm run release` builds the local Windows NSIS setup. It rebuilds the app, writes
+`release/<version>/Karaoke Studio-Setup-<version>.exe`, and links that setup at
+`release/Karaoke Studio-Setup-<version>.exe`. It does not bump versions or submit to the
+Store. `npm run dist` and `npm run dist:store` use that same entry. Do not invoke
+`scripts\release.mjs` or `scripts\deploy-release.mjs` directly for this local setup.
+
+The approval-gated store workflow is separate:
 
 ```powershell
 Set-Location C:\git\karaoke-player
 npm run release -- --approval=.squad\approvals\<fresh-approval>.json
 ```
 
-That is the only exit-0 release path. It is sufficient only with a fresh schema-2
-approval of an already versioned source commit. Missing approval, unknown flags, and any
+That store path is sufficient only with a fresh schema-2
+approval of an already versioned source commit. Unknown flags, and any
 mix of version mutation with `--approval`, `--build`, `--zip`, `--install`, or
 `--dry-run` fail before any write. Optional friend ZIP and per-user install remain
 explicit flags on this same entry, still require the same approval, and are not implied.

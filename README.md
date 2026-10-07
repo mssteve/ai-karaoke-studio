@@ -33,19 +33,26 @@ renderer and Electron compiler watch processes.
 
 ## Windows installer
 
-Completion is one public command. It is not an unattended bump-and-ship shot, and it is
-the only exit-0 release path:
+Build the NSIS setup with:
+
+```powershell
+npm run release
+```
+
+That rebuilds the app and writes `release/<version>/Karaoke Studio-Setup-<version>.exe`,
+then links the same setup at `release/Karaoke Studio-Setup-<version>.exe`. It does not
+bump the version and does not submit to the Store.
+
+The approval-gated store workflow is separate. It requires a fresh Tank schema-2 approval
+of an already versioned source commit, then delegates packaging to the canonical deploy
+workflow with the same approval. It does not bump during that packaging. Unknown flags,
+and any mix of `--bump` with `--approval`, `--build`, `--zip`, `--install`, or
+`--dry-run`, fail before any write. Direct `node scripts\deploy-release.mjs` is not a
+second public completion path.
 
 ```powershell
 npm run release -- --approval=.squad\approvals\<fresh-approval>.json
 ```
-
-That entry requires a fresh Tank schema-2 approval of an already versioned source commit,
-then delegates packaging to the canonical deploy workflow with the same approval. It does
-not bump during completion. Missing approval, unknown flags, and any mix of `--bump` with
-`--approval`, `--build`, `--zip`, `--install`, or `--dry-run` fail before any write.
-`npm run dist`, `npm run dist:store`, and direct `node scripts\deploy-release.mjs` are not
-a second public completion path.
 
 Version selection, if retained on this same entry, is a separate mode and is not release
 completion:

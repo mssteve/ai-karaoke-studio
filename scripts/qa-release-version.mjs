@@ -7,6 +7,7 @@ import {
   assertWorktreeReady,
   completionInstructions,
   deployArguments,
+  discoverCanonicalApproval,
   loadReleaseLock,
   nextReleaseVersion,
   parseReleaseArguments,
@@ -142,7 +143,9 @@ async function assertLiveVersionsMatchCommitted() {
 }
 
 test('completion requires an approval path and forwards build without a bump', () => {
-  assert.throws(() => parseReleaseArguments([]), /only exit-0 release path/)
+  assert.deepEqual(parseReleaseArguments([]), {
+    mode: 'package', approval: null, dryRun: false, zip: false, install: false, build: true,
+  })
   assert.throws(() => parseReleaseArguments(['--build']), /require --approval/)
   assert.throws(() => parseReleaseArguments(['--zip']), /require --approval/)
   assert.throws(() => parseReleaseArguments(['--install']), /require --approval/)
@@ -189,6 +192,110 @@ test('completion requires an approval path and forwards build without a bump', (
   assert.equal(env.PATH, 'x')
   assert.equal(env.KARAOKE_RELEASE_CAPABILITY_PATH, undefined)
   assert.equal(env.KARAOKE_RELEASE_LOCK_TOKEN, undefined)
+})
+
+function approvalRecord(version, parent, overrides = {}) {
+  const createdAt = new Date('2026-10-06T12:00:00.000Z')
+  return {
+    schemaVersion: 2,
+    kind: 'karaoke-release-approval',
+    verdict: 'APPROVE',
+    packageVersion: version,
+    appxVersion: `${version}.0`,
+    branch: 'main',
+    targetCommit: parent,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    ...overrides,
+  }
+}
+
+function discoveryGit(root, version, spec = {}) {
+  const head = spec.head ?? 'a'.repeat(40)
+  const parent = spec.parent ?? 'b'.repeat(40)
+  const base = gitDouble(root, version)
+  return async (cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return head
+    if (args[0] === 'rev-list') return [head, ...(spec.parents ?? [parent])].join(' ')
+    if (args[0] === 'diff-tree') return (spec.changed ?? ['.squad/approvals/tank.json']).join('\n')
+    if (args[0] === 'ls-tree') return (spec.approvals ?? ['.squad/approvals/tank.json']).join('\0')
+    if (args[0] === 'branch') return spec.branch ?? 'main'
+    if (args[0] === 'show' && String(args[1]).startsWith('HEAD:.squad/approvals/')) {
+      return JSON.stringify(spec.approval ?? approvalRecord(version, parent))
+    }
+    return base(cwd, args)
+  }
+}
+
+test('no-arg release builds the NSIS setup into the release folder', async () => {
+  const root = await fixture('1.2.3')
+  let spawned = false
+  let built = null
+  const result = await runRelease([], {
+    root,
+    git: async () => { throw new Error('git should not gate local setup builds') },
+    spawnDeploy: async () => { spawned = true; return { code: 0 } },
+    runSetupBuild: async (request) => {
+      built = request
+      await mkdir(path.dirname(request.setupPath), { recursive: true })
+      const payload = Buffer.alloc(1024 * 1024 + 16)
+      payload[0] = 0x4d
+      payload[1] = 0x5a
+      await writeFile(request.setupPath, payload)
+    },
+  })
+  assert.equal(spawned, false)
+  assert.equal(result.code, 0)
+  assert.equal(result.packaged, true)
+  assert.equal(result.version, '1.2.3')
+  assert.equal(built.outputRelative, 'release/1.2.3')
+  assert.equal(built.setupName, 'Karaoke Studio-Setup-1.2.3.exe')
+  assert.match(result.text, /release\/1\.2\.3\/Karaoke Studio-Setup-1\.2\.3\.exe/)
+  assert.match(result.text, /release\/Karaoke Studio-Setup-1\.2\.3\.exe/)
+  const linked = await readFile(path.join(root, 'release', 'Karaoke Studio-Setup-1.2.3.exe'))
+  assert.equal(linked[0], 0x4d)
+  assert.equal(linked[1], 0x5a)
+})
+
+test('no-arg release fails when the setup executable is not produced', async () => {
+  const root = await fixture('1.2.3')
+  await assert.rejects(runRelease([], {
+    root,
+    runSetupBuild: async () => {},
+  }), /was not written/)
+})
+
+test('canonical approval discovery accepts one fresh approval commit', async () => {
+  const root = await fixture('1.2.3')
+  const discovered = await discoverCanonicalApproval(root, {
+    git: discoveryGit(root, '1.2.3'),
+    now: new Date('2026-10-06T12:00:00.000Z'),
+  })
+  assert.equal(discovered, approval)
+})
+
+test('canonical approval discovery rejects missing, ambiguous, stale, and wrong-parent approvals', async () => {
+  const root = await fixture('1.2.3')
+  const parent = 'b'.repeat(40)
+  const now = new Date('2026-10-06T12:00:00.000Z')
+  const cases = [
+    [{ approvals: [] }, /No canonical approval/],
+    [{ approvals: ['.squad/approvals/tank.json', '.squad/approvals/other.json'] }, /Multiple or non-canonical/],
+    [{ approvals: ['.squad/approvals/nested/tank.json'] }, /Multiple or non-canonical/],
+    [{ parents: [parent, 'c'.repeat(40)] }, /approval-only child/],
+    [{ changed: ['package.json'] }, /approval-only child/],
+    [{ changed: [] }, /approval-only child/],
+    [{ approval: approvalRecord('1.2.3', parent, { expiresAt: '2020-01-01T00:00:00.000Z' }) }, /stale or mismatched/],
+    [{ approval: approvalRecord('9.9.9', parent, { appxVersion: '9.9.9.0' }) }, /stale or mismatched/],
+    [{ approval: approvalRecord('1.2.3', 'c'.repeat(40)) }, /sole parent target/],
+    [{ branch: '' }, /stale or mismatched/],
+  ]
+  for (const [spec, pattern] of cases) {
+    await assert.rejects(discoverCanonicalApproval(root, {
+      git: discoveryGit(root, '1.2.3', spec),
+      now,
+    }), pattern)
+  }
 })
 
 test('approval forwarding builds through deploy and does not mutate manifests', async () => {
@@ -391,7 +498,6 @@ test('command fails closed on invalid args and conflicted approval without chang
   const lockBefore = await readFile(lockPath)
   const cases = [
     [['--bump=nope'], 2, /major, minor, or patch/],
-    [[], 2, /only exit-0 release path/],
     [['--approval=report.json'], 2, /under \.squad\/approvals/],
     [['--bump=patch', `--approval=${approval}`], 2, /cannot be combined/],
     [[`--approval=${approval}`], 3, /not clean|conflict markers|does not parse|restored committed lock blob/],

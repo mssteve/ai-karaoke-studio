@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -30,6 +31,7 @@ import {
   killExactTree,
   normalizeError,
   parseArguments,
+  promoteOwnedRelease,
   redact,
   runDeploy,
   verifyFriendZip,
@@ -243,14 +245,15 @@ async function approvedFixture(mutateReviewerRegistry, attributes) {
   await mkdir(path.join(appDir, 'dist-electron'), { recursive: true })
   await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ version: '0.3.4' }))
   await writeFile(path.join(appDir, 'dist-electron', 'main.js'), 'main')
-  const appAsar = path.join(root, 'release', 'win-unpacked', 'resources', 'app.asar')
+  const releaseDir = path.join(root, 'release', '0.3.4')
+  const appAsar = path.join(releaseDir, 'win-unpacked', 'resources', 'app.asar')
   await mkdir(path.dirname(appAsar), { recursive: true })
   await asar.createPackage(appDir, appAsar)
   const outputHash = createHash('sha256').update('main').digest('hex')
   const exeName = 'Karaoke Studio-Setup-0.3.4.exe'
   const appxName = 'Karaoke Studio-Setup-0.3.4.appx'
-  await writeFile(path.join(root, 'release', exeName), 'approved-installer')
-  await createStoredZip(path.join(root, 'release', appxName), [{
+  await writeFile(path.join(releaseDir, exeName), 'approved-installer')
+  await createStoredZip(path.join(releaseDir, appxName), [{
     name: 'AppxManifest.xml',
     buffer: Buffer.from(
       `<?xml version="1.0" encoding="utf-8"?><Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"><Identity Name="KaraokeStudio" Version="0.3.4.0" ProcessorArchitecture="x64" Publisher="CN=qa"/><Properties/><Resources/><Applications><Application Id="KaraokeStudio" Executable="app\\Karaoke Studio.exe" EntryPoint="Windows.FullTrustApplication"/></Applications><Capabilities><DeviceCapability Name="microphone"/></Capabilities></Package>`,
@@ -258,9 +261,9 @@ async function approvedFixture(mutateReviewerRegistry, attributes) {
   }])
   const artifacts = []
   for (const name of [exeName, appxName]) {
-    const filePath = path.join(root, 'release', name)
+    const filePath = path.join(releaseDir, name)
     artifacts.push({
-      path: `release/${name}`,
+      path: `release/0.3.4/${name}`,
       bytes: (await stat(filePath)).size,
       sha256: await hashFile(filePath),
     })
@@ -335,17 +338,18 @@ async function approvedFixture(mutateReviewerRegistry, attributes) {
       },
     },
     artifacts,
+    hashesPath: 'release/0.3.4/SHA256SUMS.txt',
   }
   await writeFile(
-    path.join(root, 'release', 'provenance.json'),
+    path.join(releaseDir, 'provenance.json'),
     `${JSON.stringify(provenance, null, 2)}\n`,
   )
   await writeFile(
-    path.join(root, 'release', 'SHA256SUMS.txt'),
+    path.join(releaseDir, 'SHA256SUMS.txt'),
     `${artifacts.map((entry) => `${entry.sha256}  ${path.basename(entry.path)}`).join('\n')}\n`,
   )
   return {
-    root, provenance, approval, approvalPath, evidencePath, exeName, appxName,
+    root, releaseDir, provenance, approval, approvalPath, evidencePath, exeName, appxName,
     targetCommit, approvalCommit,
   }
 }
@@ -451,6 +455,7 @@ test('direct low-level release rejects an attacker-written capability record', a
 
 for (const [name, args] of [
   ['unknown flag', ['--skip-build']],
+  ['removed legacy migration flag', ['--migrate-legacy-release']],
   ['missing approval', ['--build']],
   ['dry-run mutation', ['--dry-run', '--zip']],
   ['approval without build', ['--zip', '--approval=x']],
@@ -791,16 +796,221 @@ test('canonical protected snapshot accepts a clean CRLF worktree', async () => {
   assert.equal(source.worktreeBytes, Buffer.byteLength('export {}\r\n'))
 })
 
-test('canonical protected snapshot rejects CRLF bytes when committed policy requires LF', async () => {
-  const root = await fixture('source-unapproved-crlf')
-  await writeFile(path.join(root, 'src', 'main.ts'), 'export {}\r\n')
+test('canonical protected snapshot accepts authorized CRLF for an explicit LF text policy', async () => {
+  const root = await fixture('source-authorized-lf-crlf')
+  spawnSync('git', ['config', 'core.autocrlf', 'true'], { cwd: root })
+  const sourcePath = path.join(root, 'src', 'main.ts')
+  await writeFile(sourcePath, 'export {}\r\n')
   assert.equal(spawnSync('git', ['diff', '--quiet', 'HEAD', '--', 'src/main.ts'], {
     cwd: root,
   }).status, 0)
+  const snapshot = await snapshotProtectedSources(root)
+  const source = snapshot.files.find((entry) => entry.path === 'src/main.ts')
+  const blob = spawnSync('git', ['show', 'HEAD:src/main.ts'], { cwd: root }).stdout
+  assert.equal(blob.toString('utf8'), 'export {}\n')
+  assert.equal(source.sha256, createHash('sha256').update(blob).digest('hex'))
+  assert.equal(source.bytes, blob.length)
+  assert.equal(source.worktreeBytes, Buffer.byteLength('export {}\r\n'))
+  assert.notEqual(source.sha256, createHash('sha256').update(await readFile(sourcePath)).digest('hex'))
+})
+
+test('canonical protected snapshot accepts uniform LF when EOL policy is crlf', async () => {
+  const root = await fixture(
+    'source-crlf-policy-lf-checkout',
+    undefined,
+    `${SAFE_FIXTURE_ATTRIBUTES}src/main.ts text eol=crlf\n`,
+  )
+  const snapshot = await snapshotProtectedSources(root)
+  const source = snapshot.files.find((entry) => entry.path === 'src/main.ts')
+  const blob = spawnSync('git', ['show', 'HEAD:src/main.ts'], { cwd: root }).stdout
+  assert.equal(blob.toString('utf8'), 'export {}\n')
+  assert.equal(source.bytes, blob.length)
+  assert.equal(source.worktreeBytes, blob.length)
+  assert.equal(source.sha256, createHash('sha256').update(blob).digest('hex'))
+})
+
+test('canonical protected snapshot rejects a real CRLF content edit', async () => {
+  const root = await fixture('source-crlf-content-edit')
+  await writeFile(path.join(root, 'src', 'main.ts'), 'export const edited = true\r\n')
   await assert.rejects(
     snapshotProtectedSources(root),
     /physical bytes differ from committed content/,
   )
+})
+
+test('canonical protected snapshot rejects a staged blob mismatch', async () => {
+  const root = await fixture('source-staged-blob-mismatch')
+  await writeFile(path.join(root, 'src', 'main.ts'), 'export const staged = true\r\n')
+  assert.equal(spawnSync('git', ['add', '--', 'src/main.ts'], { cwd: root }).status, 0)
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /index differs from the committed tree/,
+  )
+})
+
+test('canonical protected snapshot reports every mixed-EOL file in one failure', async () => {
+  const root = await fixture('source-mixed-eol-all')
+  for (const relative of ['src/main.ts', 'electron/main.ts']) {
+    await writeFile(path.join(root, relative), 'line1\nline2\n')
+  }
+  assert.equal(spawnSync('git', ['add', '--', 'src/main.ts', 'electron/main.ts'], { cwd: root }).status, 0)
+  assert.equal(spawnSync('git', ['commit', '--quiet', '-m', 'two lines'], { cwd: root }).status, 0)
+  await writeFile(path.join(root, 'src', 'main.ts'), 'line1\r\nline2\n')
+  await writeFile(path.join(root, 'electron', 'main.ts'), 'line1\nline2\r\n')
+  await assert.rejects(snapshotProtectedSources(root), (error) => {
+    assert.match(error.message, /2 files/)
+    assert.match(error.message, /mixed EOL\): src\/main\.ts/)
+    assert.match(error.message, /mixed EOL\): electron\/main\.ts/)
+    return true
+  })
+})
+
+test('canonical protected snapshot rejects mixed EOL even if stripping CR would match', async () => {
+  const root = await fixture('source-mixed-eol')
+  await writeFile(path.join(root, 'src', 'main.ts'), 'line1\nline2\n')
+  assert.equal(spawnSync('git', ['add', '--', 'src/main.ts'], { cwd: root }).status, 0)
+  assert.equal(spawnSync('git', ['commit', '--quiet', '-m', 'two lines'], { cwd: root }).status, 0)
+  await writeFile(path.join(root, 'src', 'main.ts'), 'line1\r\nline2\n')
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /physical bytes differ from committed content/,
+  )
+})
+
+test('canonical protected snapshot rejects a lone CR even if stripping it would match', async () => {
+  const root = await fixture('source-lone-cr')
+  await writeFile(path.join(root, 'src', 'main.ts'), 'exp\rort {}\n')
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /physical bytes differ from committed content/,
+  )
+})
+
+test('canonical protected snapshot rejects a doubled CR conversion', async () => {
+  const root = await fixture('source-doubled-cr')
+  await writeFile(path.join(root, 'src', 'main.ts'), 'export {}\r\r\n')
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /physical bytes differ from committed content/,
+  )
+})
+
+test('canonical protected snapshot rejects a non-LF-canonical text blob', async () => {
+  const root = await fixture('source-noncanonical-blob')
+  const bytes = Buffer.from('export {}\r\n')
+  const hashed = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: bytes })
+  assert.equal(hashed.status, 0, hashed.stderr.toString())
+  const oid = hashed.stdout.toString().trim()
+  assert.equal(spawnSync('git', [
+    'update-index', '--cacheinfo', `100644,${oid},src/main.ts`,
+  ], { cwd: root }).status, 0)
+  assert.equal(spawnSync('git', ['commit', '--quiet', '-m', 'raw crlf blob'], { cwd: root }).status, 0)
+  await writeFile(path.join(root, 'src', 'main.ts'), bytes)
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /committed text is not LF-canonical/,
+  )
+})
+
+test('canonical protected snapshot rejects CRLF conversion of binary content', async () => {
+  const root = await fixture(
+    'source-binary-crlf',
+    undefined,
+    `${SAFE_FIXTURE_ATTRIBUTES}build/payload.bin -text -eol -filter -ident -working-tree-encoding\n`,
+  )
+  const relative = 'build/payload.bin'
+  const bytes = Buffer.from('icon\n')
+  await writeFile(path.join(root, 'build', 'payload.bin'), bytes)
+  assert.equal(spawnSync('git', ['add', '--', '.gitattributes', relative], { cwd: root }).status, 0)
+  assert.equal(spawnSync('git', ['commit', '--quiet', '-m', 'binary payload'], { cwd: root }).status, 0)
+  const accepted = await snapshotProtectedSources(root)
+  const binary = accepted.files.find((entry) => entry.path === relative)
+  assert.equal(binary.sha256, createHash('sha256').update(bytes).digest('hex'))
+  assert.equal(binary.worktreeBytes, bytes.length)
+  await writeFile(path.join(root, 'build', 'payload.bin'), Buffer.from('icon\r\n'))
+  await assert.rejects(
+    snapshotProtectedSources(root),
+    /physical bytes differ from committed content/,
+  )
+})
+
+test('canonical protected snapshot rejects NUL text as non-canonical', async () => {
+  const root = await fixture('source-nul-text')
+  const bytes = Buffer.from('export {}\0\n')
+  const hashed = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: bytes })
+  assert.equal(hashed.status, 0, hashed.stderr.toString())
+  assert.equal(spawnSync('git', [
+    'update-index', '--cacheinfo', `100644,${hashed.stdout.toString().trim()},src/main.ts`,
+  ], { cwd: root }).status, 0)
+  assert.equal(spawnSync('git', ['commit', '--quiet', '-m', 'nul text'], { cwd: root }).status, 0)
+  await writeFile(path.join(root, 'src', 'main.ts'), bytes)
+  await assert.rejects(snapshotProtectedSources(root), /committed text is not LF-canonical/)
+})
+
+for (const [label, attribute, config] of [
+  ['local filter override', 'filter=unspecified',
+    ['filter.unspecified.clean', 'git cat-file blob HEAD:src/main.ts']],
+  ['local ident override', 'ident', undefined],
+  ['local working-tree-encoding override', 'working-tree-encoding=UTF-8', undefined],
+  ['local inherited text override', 'text=auto -eol', undefined],
+]) {
+  test(`canonical protected snapshot rejects ${label} on an otherwise authorized CRLF checkout`, async () => {
+    const root = await fixture(`source-${label.replaceAll(' ', '-')}`)
+    await writeFile(path.join(root, '.git', 'info', 'attributes'), `src/main.ts ${attribute}\n`)
+    if (config) assert.equal(spawnSync('git', ['config', ...config], { cwd: root }).status, 0)
+    await writeFile(path.join(root, 'src', 'main.ts'), 'export {}\r\n')
+    await assert.rejects(
+      snapshotProtectedSources(root),
+      /Git attribute|Git filter|content transform|text\/EOL/,
+    )
+  })
+}
+
+for (const [label, rule] of [
+  ['unspecified filter state', 'text eol=lf !filter -ident -working-tree-encoding'],
+  ['automatic text state', 'text=auto eol=lf -filter -ident -working-tree-encoding'],
+  ['missing EOL state', 'text !eol -filter -ident -working-tree-encoding'],
+  ['enabled ident state', 'text eol=lf -filter ident -working-tree-encoding'],
+  ['working-tree encoding state', 'text eol=lf -filter -ident working-tree-encoding=UTF-8'],
+]) {
+  test(`canonical protected snapshot rejects unsupported ${label}`, async () => {
+    const root = await fixture(
+      `source-unsupported-${label.replaceAll(' ', '-')}`,
+      undefined,
+      `${SAFE_FIXTURE_ATTRIBUTES}src/main.ts ${rule}\n`,
+    )
+    await assert.rejects(
+      snapshotProtectedSources(root),
+      /Git attribute|Git filter|content transform|text\/EOL/,
+    )
+  })
+}
+
+test('canonical protected snapshot rejects content hidden by an inherited clean filter', async () => {
+  const root = await fixture('source-inherited-filter')
+  const attributesPath = path.join(root, 'inherited.attributes')
+  await writeFile(attributesPath, 'src/main.ts filter=external-driver\n')
+  const configPath = path.join(root, 'inherited.gitconfig')
+  await writeFile(
+    configPath,
+    `[core]\n\tattributesFile = ${attributesPath.replaceAll('\\', '/')}\n`
+      + '[filter "external-driver"]\n\tclean = git cat-file blob HEAD:src/main.ts\n',
+  )
+  await writeFile(path.join(root, 'src', 'main.ts'), 'export const inherited = true\r\n')
+  const result = spawnSync(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    `import { snapshotProtectedSources } from ${JSON.stringify(
+      new URL('./release-artifact-verification.mjs', import.meta.url).href,
+    )}; await snapshotProtectedSources(process.argv[1]);`,
+    root,
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_GLOBAL: configPath },
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(`${result.stderr}${result.stdout}`, /Git attribute|Git filter|physical bytes/)
 })
 
 for (const [label, attribute, driverKey] of [
@@ -1509,17 +1719,17 @@ test('package and lockfile version inconsistency is rejected', async () => {
 })
 
 for (const mutation of [
-  ['missing installer', async ({ root, exeName }) => rm(path.join(root, 'release', exeName))],
-  ['installer hash mismatch', async ({ root, exeName }) =>
-    writeFile(path.join(root, 'release', exeName), 'tampered')],
+  ['missing installer', async ({ releaseDir, exeName }) => rm(path.join(releaseDir, exeName))],
+  ['installer hash mismatch', async ({ releaseDir, exeName }) =>
+    writeFile(path.join(releaseDir, exeName), 'tampered')],
   ['source mismatch', async ({ root }) => writeFile(path.join(root, 'src', 'main.ts'), 'dirty')],
   ['provenance rejection', async ({ root, provenance }) => {
     provenance.verdict = 'REJECT'
-    await writeFile(path.join(root, 'release', 'provenance.json'), JSON.stringify(provenance))
+    await writeFile(path.join(root, 'release', '0.3.4', 'provenance.json'), JSON.stringify(provenance))
   }],
   ['secret scan rejection', async ({ root, provenance }) => {
     provenance.verification.secretScans.findings = 1
-    await writeFile(path.join(root, 'release', 'provenance.json'), JSON.stringify(provenance))
+    await writeFile(path.join(root, 'release', '0.3.4', 'provenance.json'), JSON.stringify(provenance))
   }],
   ['approval hash mismatch', async ({ approvalPath }) => writeFile(approvalPath, '{}')],
 ]) {
@@ -1937,7 +2147,7 @@ test('ZIP hash mismatch is rejected and prior good ZIP survives failed refresh',
 test('artifact timestamp-only changes preserve content identity', async () => {
   const { root, exeName } = await approvedFixture()
   const approvedBefore = await verifyApprovedRelease({ root })
-  const installer = path.join(root, 'release', exeName)
+  const installer = path.join(root, 'release', '0.3.4', exeName)
   const time = new Date(Date.now() + 60_000)
   await utimes(installer, time, time)
   const approvedAfter = await verifyApprovedRelease({ root })
@@ -1973,6 +2183,62 @@ test('atomic promotion restores old output when staged rename fails', async () =
     },
   }))
   assert.equal(await readFile(path.join(live, 'old.txt'), 'utf8'), 'old')
+})
+
+test('version promotion replaces only the target folder and restores it on failure', async () => {
+  const root = await fixture('version-rollback')
+  const sibling = path.join(root, 'release', '0.3.4', 'keep.txt')
+  await mkdir(path.dirname(sibling), { recursive: true })
+  await writeFile(sibling, 'keep')
+  const live = path.join(root, 'release', '0.3.5')
+  await mkdir(live)
+  await writeFile(path.join(live, 'old.txt'), 'old')
+  const staged = path.join(root, '.release-staging-rollback')
+  await mkdir(staged)
+  await writeFile(path.join(staged, 'new.txt'), 'new')
+  let calls = 0
+  await assert.rejects(promoteOwnedRelease(staged, root, '0.3.5', 'rollback', {
+    rename: async (from, to) => {
+      calls += 1
+      if (calls === 2) throw Object.assign(new Error('injected'), { code: 'EIO' })
+      return rename(from, to)
+    },
+  }), /Atomic promotion failed/)
+  assert.equal(await readFile(path.join(live, 'old.txt'), 'utf8'), 'old')
+  assert.equal(await readFile(sibling, 'utf8'), 'keep')
+  assert.equal(existsSync(path.join(staged, 'new.txt')), true)
+  await promoteOwnedRelease(staged, root, '0.3.5', 'rollback')
+  assert.equal(await readFile(path.join(root, 'release', '0.3.5', 'new.txt'), 'utf8'), 'new')
+  assert.equal(await readFile(sibling, 'utf8'), 'keep')
+  assert.equal(existsSync(path.join(root, 'release', '0.3.4')), true)
+})
+
+test('version promotion refuses to overwrite an approved version folder', async () => {
+  const root = await fixture('version-overwrite')
+  const live = path.join(root, 'release', '0.3.5')
+  await mkdir(live, { recursive: true })
+  await writeFile(path.join(live, 'provenance.json'), JSON.stringify({
+    verdict: 'APPROVE', packageVersion: '0.3.5',
+  }))
+  const staged = path.join(root, '.release-staging-overwrite')
+  await mkdir(staged)
+  await writeFile(path.join(staged, 'new.txt'), 'new')
+  await assert.rejects(
+    promoteOwnedRelease(staged, root, '0.3.5', 'overwrite'),
+    /Refusing to overwrite approved release/,
+  )
+  assert.equal(existsSync(path.join(staged, 'new.txt')), true)
+  assert.equal(existsSync(path.join(live, 'provenance.json')), true)
+})
+
+test('current verification does not accept root-level release artifacts', async () => {
+  const { root, releaseDir } = await approvedFixture()
+  const legacy = path.join(root, 'legacy-release')
+  await rename(releaseDir, legacy)
+  for (const name of await readdir(legacy)) {
+    await rename(path.join(legacy, name), path.join(root, 'release', name))
+  }
+  await assert.rejects(verifyApprovedRelease({ root }), /missing or invalid/)
 })
 
 test('install is exact-path scoped, preserves user data, and conditionally relaunches', async () => {
