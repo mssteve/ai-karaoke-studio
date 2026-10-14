@@ -43,6 +43,16 @@ That rebuilds the app and writes `release/<version>/Karaoke Studio-Setup-<versio
 then links the same setup at `release/Karaoke Studio-Setup-<version>.exe`. It does not
 bump the version and does not submit to the Store.
 
+Update only the version number with:
+
+```powershell
+npm run release:major
+npm run release:minor
+npm run release:patch
+```
+
+Each command updates `package.json` and both root `package-lock.json` version fields, then exits 0. It does not build a setup and does not commit. The worktree must be clean.
+
 The approval-gated store workflow is separate. It requires a fresh Tank schema-2 approval
 of an already versioned source commit, then delegates packaging to the canonical deploy
 workflow with the same approval. It does not bump during that packaging. Unknown flags,

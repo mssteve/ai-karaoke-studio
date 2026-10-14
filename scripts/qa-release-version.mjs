@@ -156,6 +156,17 @@ test('completion requires an approval path and forwards build without a bump', (
   assert.throws(() => parseReleaseArguments(['patch']), /Unknown argument/)
   assert.throws(() => parseReleaseArguments(['--bump=prepatch']), /major, minor, or patch/)
   assert.throws(() => parseReleaseArguments(['--bump']), /requires major, minor, or patch/)
+  assert.throws(() => parseReleaseArguments(['--version-update']), /requires --bump/)
+  assert.throws(() => parseReleaseArguments(['--bump=patch', '--version-update', '--version-update']), /only once/)
+  assert.deepEqual(parseReleaseArguments(['--bump=major', '--version-update']), {
+    mode: 'bump', bump: 'major', versionUpdate: true,
+  })
+  assert.deepEqual(parseReleaseArguments(['--version-update', '--bump=minor']), {
+    mode: 'bump', bump: 'minor', versionUpdate: true,
+  })
+  assert.deepEqual(parseReleaseArguments(['--bump=patch']), {
+    mode: 'bump', bump: 'patch', versionUpdate: false,
+  })
   assert.throws(
     () => parseReleaseArguments(['--bump=patch', `--approval=${approval}`]),
     /cannot be combined/,
@@ -410,6 +421,30 @@ test('bump prepares a version, exits non-zero, and never spawns packaging', asyn
   assert.equal(packageLock.dependencies.demucs.version, '1.0.0')
 })
 
+test('release version scripts update the requested version and exit 0', async () => {
+  const expected = { major: '2.0.0', minor: '1.3.0', patch: '1.2.4' }
+  for (const kind of ['major', 'minor', 'patch']) {
+    const root = await fixture('1.2.3')
+    let spawned = false
+    const harness = ready(root, '1.2.3', {
+      spawnDeploy: async () => { spawned = true; return { code: 0 } },
+    })
+    const result = await runRelease(['--bump=' + kind, '--version-update'], harness.dependencies)
+    assert.equal(result.code, 0)
+    assert.equal(result.prepared, true)
+    assert.equal(result.packaged, false)
+    assert.equal(result.version, expected[kind])
+    assert.equal(spawned, false)
+    assert.match(result.text, new RegExp(`Updated package version to ${expected[kind].replaceAll('.', '\\.')}`))
+    assert.match(result.text, /No setup was built/)
+    const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+    const packageLock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'))
+    assert.equal(packageJson.version, expected[kind])
+    assert.equal(packageLock.version, expected[kind])
+    assert.equal(packageLock.packages[''].version, expected[kind])
+  }
+})
+
 test('bump refuses a dirty tree, conflict markers, and a live lock before writing', async () => {
   const root = await fixture('4.5.6')
   const before = await readFile(path.join(root, 'package.json'))
@@ -475,6 +510,9 @@ test('unsynchronized manifests and a capability issuer are rejected before a wri
 test('package script wiring is the sole release entry and does not recurse', async () => {
   const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8'))
   assert.equal(packageJson.scripts.release, 'node scripts/release-version.mjs')
+  assert.equal(packageJson.scripts['release:major'], 'node scripts/release-version.mjs --bump=major --version-update')
+  assert.equal(packageJson.scripts['release:minor'], 'node scripts/release-version.mjs --bump=minor --version-update')
+  assert.equal(packageJson.scripts['release:patch'], 'node scripts/release-version.mjs --bump=patch --version-update')
   assert.equal(packageJson.scripts.dist, 'npm run release --')
   assert.equal(packageJson.scripts['dist:store'], 'npm run release --')
   await assertLiveVersionsMatchCommitted()
@@ -498,6 +536,8 @@ test('command fails closed on invalid args and conflicted approval without chang
   const lockBefore = await readFile(lockPath)
   const cases = [
     [['--bump=nope'], 2, /major, minor, or patch/],
+    [['--version-update'], 2, /requires --bump/],
+    [['--bump=patch', '--version-update'], 3, /not clean|conflict markers|restored committed lock blob/],
     [['--approval=report.json'], 2, /under \.squad\/approvals/],
     [['--bump=patch', `--approval=${approval}`], 2, /cannot be combined/],
     [[`--approval=${approval}`], 3, /not clean|conflict markers|does not parse|restored committed lock blob/],

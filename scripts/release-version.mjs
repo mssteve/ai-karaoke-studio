@@ -53,6 +53,10 @@ export function completionInstructions() {
     '  npm run release -- --approval=.squad/approvals/<approval>.json',
     'That builds NSIS and APPX and does not change package versions.',
     'Optional --zip or --install may be added only with that explicit approval.',
+    'Update the version without packaging:',
+    '  npm run release:major',
+    '  npm run release:minor',
+    '  npm run release:patch',
     'To prepare a future version without packaging:',
     '  npm run release -- --bump=patch',
     'Preparation exits non-zero, does not package, and is not release completion.',
@@ -109,6 +113,7 @@ export function parseReleaseArguments(argv) {
   let dryRun = false
   let zip = false
   let install = false
+  let versionUpdate = false
   const rejectDuplicate = (name) => {
     throw new ReleaseVersionError(`${name} may be supplied only once.`)
   }
@@ -123,6 +128,11 @@ export function parseReleaseArguments(argv) {
         throw new ReleaseVersionError('--bump requires major, minor, or patch.')
       }
       bump = kind
+      continue
+    }
+    if (argument === '--version-update') {
+      if (versionUpdate) rejectDuplicate('--version-update')
+      versionUpdate = true
       continue
     }
     if (argument === '--build') {
@@ -159,6 +169,9 @@ export function parseReleaseArguments(argv) {
     throw new ReleaseVersionError(`Unknown argument: ${argument}.`)
   }
   const packaging = build || dryRun || zip || install
+  if (versionUpdate && !bump) {
+    throw new ReleaseVersionError('--version-update requires --bump=major, --bump=minor, or --bump=patch.')
+  }
   if (bump && (approval || packaging)) {
     throw new ReleaseVersionError(
       'Version preparation cannot be combined with --approval, --build, --zip, --install, or --dry-run.',
@@ -172,7 +185,7 @@ export function parseReleaseArguments(argv) {
       '--build, --zip, --install, and --dry-run require --approval=.squad/approvals/<approval>.json.',
     )
   }
-  if (bump) return { mode: 'bump', bump }
+  if (bump) return { mode: 'bump', bump, versionUpdate }
   if (!approval) {
     return { mode: 'package', approval: null, dryRun: false, zip: false, install: false, build: true }
   }
@@ -474,6 +487,16 @@ export async function prepareReleaseVersion(root, kind, dependencies = {}) {
   }
 }
 
+function versionUpdateText(version) {
+  return [
+    `Updated package version to ${version}.`,
+    'package.json and package-lock.json were updated.',
+    'No setup was built and nothing was committed.',
+    'Build that version with:',
+    '  npm run release',
+  ].join('\n')
+}
+
 function bumpResultText(version) {
   return [
     `Prepared package version ${version}.`,
@@ -486,7 +509,8 @@ function bumpResultText(version) {
   ].join('\n')
 }
 
-async function runBump(root, kind, dependencies) {
+async function runBump(root, options, dependencies) {
+  const kind = options.bump
   await assertWorktreeReady(root, dependencies)
   const git = dependencies.git ?? defaultGit
   await assertRestoredLockBlob(root, git)
@@ -509,12 +533,13 @@ async function runBump(root, kind, dependencies) {
       ...dependencies,
       assertGate: async () => lockModule,
     })
+    const versionUpdate = options.versionUpdate === true
     return {
-      code: 3,
+      code: versionUpdate ? 0 : 3,
       version,
       prepared: true,
       packaged: false,
-      text: bumpResultText(version),
+      text: versionUpdate ? versionUpdateText(version) : bumpResultText(version),
     }
   } finally {
     await handle.release()
@@ -868,7 +893,7 @@ export async function buildLocalSetup(root, dependencies = {}) {
 export async function runRelease(argv = [], dependencies = {}) {
   const root = path.resolve(dependencies.root ?? moduleRoot)
   const options = parseReleaseArguments(argv)
-  if (options.mode === 'bump') return runBump(root, options.bump, dependencies)
+  if (options.mode === 'bump') return runBump(root, options, dependencies)
   if (!options.approval) return buildLocalSetup(root, dependencies)
   return runPackage(root, options, dependencies)
 }

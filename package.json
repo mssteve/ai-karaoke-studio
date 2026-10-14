@@ -29,6 +29,9 @@
     "qa:transcription-timing": "node scripts/qa-transcription-timing.mjs",
     "qa:enhancement": "node scripts/qa-enhancement.mjs",
     "release": "node scripts/release-version.mjs",
+    "release:major": "node scripts/release-version.mjs --bump=major --version-update",
+    "release:minor": "node scripts/release-version.mjs --bump=minor --version-update",
+    "release:patch": "node scripts/release-version.mjs --bump=patch --version-update",
     "dist": "npm run release --",
     "dist:store": "npm run release --",
     "preview": "vite preview"

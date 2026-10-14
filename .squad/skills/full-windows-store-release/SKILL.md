@@ -72,7 +72,15 @@ both root `package-lock.json` version fields. APPX must emit that version as
 approved Store package. Never overwrite an approved same-version artifact with different
 bytes.
 
-Version selection, if retained on the same public entry, is a separate explicit prepare
+Version updates that should succeed are:
+
+```powershell
+npm run release:major
+npm run release:minor
+npm run release:patch
+```
+
+Those commands update `package.json` and both root `package-lock.json` version fields, refuse a dirty tree, do not package, do not commit, and exit 0. Version selection through `--bump` without `--version-update`, if retained on the same public entry, is a separate explicit prepare
 mode and is not release completion:
 
 ```powershell
