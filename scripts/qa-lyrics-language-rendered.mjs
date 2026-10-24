@@ -350,7 +350,7 @@ checks += 6
 
 console.log(`PASS lyrics-language-rendered: ${checks} source and state checks`)
 
-if (process.argv.includes('--rendered')) {
+if (process.argv.includes('--rendered') || process.argv.includes('--playlists-rendered')) {
   await runRendered()
 }
 
@@ -548,14 +548,23 @@ async function runRendered() {
       }
       assert.equal(source.split('window.karaoke??').length - 1, 1, 'One renderer bridge adapter is expected')
       const adapter = `
-        window.__qa = { writes: [], cursorCalls: [], deferredUpdates: [], delaySettings: ${delaySettings}, failSettings: ${failSettings} };
+        window.__qa = { writes: [], cursorCalls: [], archiveCalls: [], deferredUpdates: [], delaySettings: ${delaySettings}, failSettings: ${failSettings} };
         window.__qaBridge = {
           ...window.karaoke,
-          setPlaylistCursor: request => {
+          setPlaylistCursor: async request => {
             window.__qa.cursorCalls.push(request);
-            if (!window.__qa.delayCursor) return window.karaoke.setPlaylistCursor(request);
-            return new Promise((resolve, reject) => {
-              window.__qa.releaseCursor = () => window.karaoke.setPlaylistCursor(request).then(resolve, reject);
+            const saved = await window.karaoke.setPlaylistCursor(request);
+            if (!window.__qa.delayCursor) return saved;
+            return new Promise(resolve => {
+              window.__qa.releaseCursor = () => { window.__qa.releaseCursor = undefined; resolve(saved); };
+            });
+          },
+          archiveQueueEntry: async request => {
+            window.__qa.archiveCalls.push(request);
+            const saved = await window.karaoke.archiveQueueEntry(request);
+            if (!window.__qa.delayArchive) return saved;
+            return new Promise(resolve => {
+              window.__qa.releaseArchive = () => { window.__qa.releaseArchive = undefined; resolve(saved); };
             });
           },
           getSettings: () => window.karaoke.getSettings().then(value => {
@@ -599,7 +608,8 @@ async function runRendered() {
     await page.send('Page.reload', { ignoreCache: true })
     await waitFor(async () => {
       if (page.interceptError) throw page.interceptError
-      return intercepted && await page.evaluate('Boolean(window.__qa?.processUpdate)')
+      return intercepted && await page.evaluate(`Boolean(window.__qa?.processUpdate)
+        && document.querySelectorAll('[data-testid="song-row"]').length >= 2`)
     }, 'instrumented real renderer')
     await page.send('Fetch.disable')
     page.onEvent = undefined
@@ -652,15 +662,319 @@ async function runRendered() {
     })()`)
   }
 
-  async function clickPlaylistEntry(entryId, clickCount) {
+  async function clickRendered(selector, clickCount) {
     const point = await page.evaluate(`(() => {
-      const button = document.querySelector('[data-testid="playlist-entry-${entryId}"]')
+      const button = document.querySelector(${JSON.stringify(selector)})
       button.scrollIntoView({ block: 'center' })
       const rect = button.getBoundingClientRect()
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
     })()`)
     await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', buttons: 1, clickCount, ...point })
     await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', buttons: 0, clickCount, ...point })
+  }
+
+  async function clickPlaylistEntry(entryId, clickCount) {
+    await clickRendered(`[data-testid="playlist-entry-${entryId}"]`, clickCount)
+  }
+
+  async function runQueueTransportRegressions() {
+    const seed = await page.evaluate(`(async () => {
+      let store = await window.karaoke.getPlaylists()
+      for (const playlistId of ['queue', 'history']) {
+        const playlist = store.playlists.find(item => item.id === playlistId)
+        store = await window.karaoke.clearPlaylist({ playlistId, expectedUpdatedAt: playlist.updatedAt })
+      }
+      for (const songId of ['lyrics-edit-fixture', 'lyrics-edit-fixture', 'lyrics-edit-other']) {
+        const queue = store.playlists.find(item => item.id === 'queue')
+        store = await window.karaoke.addSongToPlaylist({ playlistId: queue.id, songId, expectedUpdatedAt: queue.updatedAt })
+      }
+      await window.karaoke.selectPlaylist({ playlistId: 'queue' })
+      return store.playlists.find(item => item.id === 'queue').entries
+    })()`)
+    assert.equal(new Set(seed.map(entry => entry.id)).size, 3, 'Duplicate songs retain distinct entry identities')
+    await instrumentRenderer()
+    await waitFor(async () => page.evaluate(`document.querySelectorAll('[data-testid="song-row"]').length === 2`), 'queue fixture library ready')
+    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
+    await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[data-testid="playlist-entry-${seed[0].id}"]'))`), 'seeded Queue rendered')
+    await clickPlaylistEntry(seed[0].id, 1)
+    await clickPlaylistEntry(seed[0].id, 2)
+    await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return status.playlists.currentEntryId === seed[0].id && status.playback.status === 'playing'
+        && status.playback.currentTime > 0.15 ? status : undefined
+    }, 'Queue first duplicate actually playing')
+
+    async function advanced(archivedCount, nextEntry) {
+      return waitFor(async () => {
+        const status = await sendCommand({ action: 'status' })
+        const queue = status.playlists.playlists.find(item => item.kind === 'queue')
+        const history = status.playlists.playlists.find(item => item.kind === 'history')
+        if (queue.entries.length !== seed.length - archivedCount || history.entries.length !== archivedCount
+          || status.playlists.currentEntryId !== nextEntry.id || status.playback.songId !== nextEntry.songId
+          || status.playback.status !== 'playing' || status.playback.currentTime <= 0.15) return undefined
+        assert.deepEqual(queue.entries.map(entry => entry.id), seed.slice(archivedCount).map(entry => entry.id))
+        assert.deepEqual(history.entries.map(entry => entry.id), seed.slice(0, archivedCount).reverse().map(entry => entry.id))
+        const media = await page.evaluate(`({ paused: document.querySelector('audio').paused,
+          time: document.querySelector('audio').currentTime, error: document.querySelector('audio').error?.code })`)
+        assert.equal(media.paused, false)
+        assert.equal(media.error, undefined)
+        assert.equal(status.playback.playingIntent, true)
+        assert.equal(status.playlists.activePlaylistId, 'queue')
+        assert.equal(await page.evaluate('Boolean(document.querySelector(".error-toast"))'), false)
+        return { queue: queue.entries, history: history.entries, playback: status.playback, media }
+      }, `Queue archives ${archivedCount} exactly once and actually plays ${nextEntry.id}`)
+    }
+
+    await page.evaluate(`document.querySelector('[data-testid="playback-next"]').click()`)
+    record('queue-manual-next-archives-once-and-plays-duplicate', await advanced(1, seed[1]))
+    await capture('queue-manual-next')
+
+    async function seekNearEnd() {
+      const duration = await waitFor(async () => page.evaluate(`(() => {
+        const audio = document.querySelector('audio')
+        return audio.readyState >= 3 && Number.isFinite(audio.duration) && audio.duration > 1 ? audio.duration : 0
+      })()`), 'actual playable duration before near-end seek')
+      const runway = Math.min(2, Math.max(0.5, duration * 0.15))
+      const target = duration - runway
+      await sendCommand({ action: 'ui', uiAction: 'set-value', selector: '[data-testid="playback-seek"]', uiValue: String(target) })
+      const observed = await waitFor(async () => page.evaluate(`(() => {
+        const audio = document.querySelector('audio')
+        return audio.currentTime >= ${target - 0.2} && audio.currentTime < audio.duration
+          ? { time: audio.currentTime, duration: audio.duration, paused: audio.paused } : undefined
+      })()`), 'rendered duration-relative seek applied')
+      assert.equal(observed.paused, false)
+      return { duration, runway, target, observed }
+    }
+
+    const naturalSeek = await seekNearEnd()
+    record('queue-natural-end-archives-once-and-autoplays', { seek: naturalSeek, ...await advanced(2, seed[2]) })
+    await capture('queue-natural-end')
+    const finalSeek = await seekNearEnd()
+    const terminal = await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      const queue = status.playlists.playlists.find(item => item.kind === 'queue')
+      const history = status.playlists.playlists.find(item => item.kind === 'history')
+      const media = await page.evaluate(`(() => {
+        const audio = document.querySelector('audio')
+        return { ended: audio.ended, paused: audio.paused, time: audio.currentTime, duration: audio.duration,
+          intent: audio.dataset.playbackIntent, error: audio.error?.code }
+      })()`)
+      if (queue.entries.length || history.entries.length !== 3 || status.playlists.activePlaylistId
+        || status.playlists.currentEntryId || status.playback.status !== 'ended'
+        || status.playback.playingIntent || !media.ended || !media.paused || media.intent !== 'false') return undefined
+      assert.deepEqual(history.entries.map(entry => entry.id), seed.toReversed().map(entry => entry.id))
+      assert.ok(Math.abs(media.time - media.duration) < 0.1, 'Final Queue entry reaches actual terminal duration')
+      assert.equal(media.error, undefined)
+      return { queue: queue.entries, history: history.entries, playback: status.playback, media }
+    }, 'final Queue archives once and reaches terminal ended without wrapping')
+    record('queue-final-natural-end-is-terminal', { seek: finalSeek, ...terminal })
+    await capture('queue-final-ended')
+    assert.deepEqual((await sendCommand({ action: 'diagnostics' })).rendererErrors, [], 'Queue transport has no renderer errors')
+  }
+
+  async function runPlaylistMutationRegressions() {
+    const seed = await page.evaluate(`(async () => {
+      let store = await window.karaoke.createPlaylist({ name: 'Mutation transport QA' })
+      const namedId = store.playlists.at(-1).id
+      for (const playlistId of ['queue', namedId]) {
+        for (const songId of ['lyrics-edit-fixture', 'lyrics-edit-fixture', 'lyrics-edit-other']) {
+          const playlist = store.playlists.find(item => item.id === playlistId)
+          store = await window.karaoke.addSongToPlaylist({ playlistId, songId, expectedUpdatedAt: playlist.updatedAt })
+        }
+      }
+      return { store, namedId }
+    })()`)
+    await instrumentRenderer()
+    await waitFor(async () => page.evaluate(`document.querySelectorAll('[data-testid="song-row"]').length === 2`), 'mutation fixture library ready')
+    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
+
+    async function openPlaylist(id) {
+      await page.evaluate(`document.querySelector('[data-testid="playlist-${id}"]').click()`)
+      await waitFor(async () => (await sendCommand({ action: 'status' })).playlists.selectedPlaylistId === id, `playlist ${id} open`)
+    }
+    async function selectedEntry(entry, playing = false) {
+      return waitFor(async () => {
+        const status = await sendCommand({ action: 'status' })
+        const audio = await page.evaluate(`({ paused: document.querySelector('audio').paused,
+          time: document.querySelector('audio').currentTime, ready: document.querySelector('audio').readyState })`)
+        return status.playlists.currentEntryId === entry.id && status.playback.songId === entry.songId
+          && status.playback.status === (playing ? 'playing' : 'paused')
+          && status.playback.playingIntent === playing && audio.paused === !playing && audio.ready >= 3
+          && (!playing || audio.time > 0.15) ? { status, audio } : undefined
+      }, `entry ${entry.id} ${playing ? 'actually playing' : 'selected paused'}`)
+    }
+    async function delayCursor(entry) {
+      await page.evaluate('window.__qa.releaseCursor = undefined; window.__qa.delayCursor = true')
+      await clickPlaylistEntry(entry.id, 1)
+      await waitFor(async () => page.evaluate('Boolean(window.__qa.releaseCursor)'), 'real cursor mutation committed with acknowledgement held')
+      await clickPlaylistEntry(entry.id, 2)
+    }
+    async function releaseCursor() {
+      await page.evaluate('window.__qa.delayCursor = false; window.__qa.releaseCursor()')
+    }
+    async function resetCursor(id) {
+      await page.evaluate(`(async () => {
+        const store = await window.karaoke.getPlaylists()
+        const playlist = store.playlists.find(item => item.id === ${JSON.stringify(id)})
+        await window.karaoke.setPlaylistCursor({ playlistId: playlist.id, expectedUpdatedAt: playlist.updatedAt })
+      })()`)
+      await openPlaylist(id)
+    }
+    const named = seed.store.playlists.find(item => item.id === seed.namedId)
+    await openPlaylist(named.id)
+    await clickPlaylistEntry(named.entries[0].id, 1)
+    await selectedEntry(named.entries[0])
+    await page.evaluate(`document.querySelector('[data-testid="playlist-remove-${named.entries[0].id}"]').click()`)
+    const removed = await selectedEntry(named.entries[1])
+    assert.deepEqual(removed.status.playlists.playlists.find(item => item.id === named.id).entries.map(entry => entry.id),
+      named.entries.slice(1).map(entry => entry.id))
+    record('paused-remove-activates-fresh-surviving-duplicate', { removed: named.entries[0].id, selected: named.entries[1].id })
+
+    await page.evaluate(`document.querySelector('[data-testid="playback-next"]').click()`)
+    await selectedEntry(named.entries[2], true)
+    await page.evaluate(`document.querySelector('[data-testid="playback-previous"]').click()`)
+    await selectedEntry(named.entries[1], true)
+    record('named-next-and-previous-use-current-store', { next: named.entries[2].id, previous: named.entries[1].id })
+    await page.evaluate(`document.querySelector('[data-testid="playlist-remove-${named.entries[1].id}"]').click()`)
+    await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return !status.playlists.currentEntryId && status.playlists.activePlaylistId === named.id
+        && status.playback.status === 'playing' && status.playlists.playlists.find(item => item.id === named.id).entries.length === 1
+    }, 'playing removal detaches without interrupting media')
+    const duration = await page.evaluate(`document.querySelector('audio').duration`)
+    const runway = Math.min(2, Math.max(0.5, duration * 0.15))
+    await sendCommand({ action: 'ui', uiAction: 'set-value', selector: '[data-testid="playback-seek"]', uiValue: String(duration - runway) })
+    const detached = await selectedEntry(named.entries[2], true)
+    assert.equal(detached.status.playlists.playlists.find(item => item.id === 'history').entries.length, 3,
+      'Named-list removal and natural advance do not archive into History')
+    record('playing-remove-advances-to-surviving-entry', { entryId: named.entries[2].id, duration, runway })
+    await sendCommand({ action: 'control', value: { action: 'pause' } })
+
+    const queue = seed.store.playlists.find(item => item.id === 'queue')
+    await openPlaylist('queue')
+    await clickPlaylistEntry(queue.entries[0].id, 1)
+    await selectedEntry(queue.entries[0])
+    await page.evaluate('window.__qa.delayArchive = true')
+    await page.evaluate(`document.querySelector('[data-testid="playback-next"]').click()`)
+    await waitFor(async () => page.evaluate('Boolean(window.__qa.releaseArchive)'), 'real archive committed before delayed acknowledgement')
+    await page.evaluate(`document.querySelector('[data-testid="playback-next"]').click()`)
+    assert.equal(await page.evaluate('window.__qa.archiveCalls.length'), 1, 'Repeated Next shares the in-flight archive')
+    await page.evaluate(`document.querySelector('[data-testid="nav-library"]').click()`)
+    await clickRendered('[data-testid="song-row"][data-song-id="lyrics-edit-other"]', 1)
+    await clickRendered('[data-testid="song-row"][data-song-id="lyrics-edit-other"]', 2)
+    await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return !status.playlists.activePlaylistId && status.playback.songId === 'lyrics-edit-other'
+        && status.playback.status === 'playing' && status.playback.currentTime > 0.15
+    }, 'newer Library double-click plays while old archive acknowledgement is held')
+    await page.evaluate('window.__qa.delayArchive = false; window.__qa.releaseArchive()')
+    const lateArchive = await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return status.playlists.playlists.find(item => item.id === 'queue').entries.length === 2
+        && !status.playlists.activePlaylistId && status.playback.songId === 'lyrics-edit-other'
+        && status.playback.status === 'playing' && status.playback.currentTime > 0.3 ? status : undefined
+    }, 'late archive cannot select old Queue or pause newer Library playback')
+    assert.equal(lateArchive.playlists.playlists.find(item => item.id === 'history').entries
+      .filter(entry => entry.id === queue.entries[0].id).length, 1)
+    record('repeated-next-and-late-archive-preserve-newer-intent', { archivedOnce: queue.entries[0].id, playback: lateArchive.playback })
+    await sendCommand({ action: 'control', value: { action: 'pause' } })
+
+    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
+    await openPlaylist('queue')
+    await delayCursor(queue.entries[2])
+    await page.evaluate(`document.querySelector('[data-testid="playlist-remove-${queue.entries[2].id}"]').click()`)
+    await releaseCursor()
+    const removedPending = await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      const queue = status.playlists.playlists.find(item => item.id === 'queue')
+      return queue.entries.length === 1 && !status.playlists.activePlaylistId && !status.playlists.currentEntryId
+        && status.playback.status === 'paused' && !status.playback.playingIntent ? status : undefined
+    }, 'remove after delayed cursor does not start the removed target')
+    assert.deepEqual(removedPending.playlists.playlists.find(item => item.id === 'queue').entries.map(entry => entry.id),
+      [queue.entries[1].id])
+    record('remove-after-delayed-cursor-does-not-resurrect', { removedId: queue.entries[2].id })
+    await resetCursor('queue')
+    await delayCursor(queue.entries[1])
+    await page.evaluate(`document.querySelector('[data-testid="playlist-clear"]').click()`)
+    await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[data-testid="playlist-clear-confirm"]'))`), 'rendered clear confirmation')
+    await page.evaluate(`document.querySelector('[data-testid="playlist-clear-confirm"]').click()`)
+    await releaseCursor()
+    const cleared = await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return !status.playlists.playlists.find(item => item.id === 'queue').entries.length
+        && !status.playlists.activePlaylistId && !status.playlists.currentEntryId
+        && status.playback.status === 'paused' && !status.playback.playingIntent ? status : undefined
+    }, 'clear after delayed cursor leaves no resurrected selection or playback')
+    assert.equal(await page.evaluate('document.querySelector("audio").paused'), true)
+    record('clear-after-delayed-cursor-does-not-resurrect', cleared.playlists)
+
+    await openPlaylist(named.id)
+    await resetCursor(named.id)
+    await delayCursor(named.entries[2])
+    await page.evaluate(`[...document.querySelectorAll('.playlist-heading button')].find(button => button.textContent === 'Delete').click()`)
+    await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[aria-labelledby="playlist-delete-title"]'))`), 'rendered delete confirmation')
+    await page.evaluate(`document.querySelector('[aria-labelledby="playlist-delete-title"] .danger-button').click()`)
+    await releaseCursor()
+    await waitFor(async () => {
+      const status = await sendCommand({ action: 'status' })
+      return !status.playlists.playlists.some(item => item.id === named.id) && !status.playlists.activePlaylistId
+        && !status.playlists.currentEntryId && status.playback.status === 'paused' && !status.playback.playingIntent
+    }, 'delete after delayed cursor cannot recreate playlist or start removed target')
+    record('delete-after-delayed-cursor-does-not-resurrect', { deletedId: named.id })
+    assert.deepEqual((await sendCommand({ action: 'diagnostics' })).rendererErrors, [])
+
+    const external = await page.evaluate(`(async () => {
+      let store = await window.karaoke.getPlaylists()
+      for (const songId of ['lyrics-edit-fixture', 'lyrics-edit-other']) {
+        const queue = store.playlists.find(item => item.id === 'queue')
+        store = await window.karaoke.addSongToPlaylist({ playlistId: queue.id, songId, expectedUpdatedAt: queue.updatedAt })
+      }
+      return store.playlists.find(item => item.id === 'queue')
+    })()`)
+    await openPlaylist('queue')
+    await page.evaluate(`(async () => {
+      const store = await window.karaoke.getPlaylists()
+      const queue = store.playlists.find(item => item.id === 'queue')
+      await window.karaoke.addSongToPlaylist({ playlistId: queue.id, songId: 'lyrics-edit-fixture', expectedUpdatedAt: queue.updatedAt })
+    })()`)
+    await clickPlaylistEntry(external.entries[1].id, 1)
+    await waitFor(async () => page.evaluate(`document.querySelector('.error-toast')?.textContent.includes('The playlist changed. Refresh and try again.')`), 'legitimate external stale mutation is visibly rejected')
+    const diagnostics = await sendCommand({ action: 'diagnostics' })
+    assert.equal(diagnostics.rendererErrors.length, 1)
+    assert.equal(diagnostics.rendererErrors[0].message, 'Renderer exception: Unable to select the playlist entry')
+    assert.match(diagnostics.rendererErrors[0].detail, /The playlist changed\. Refresh and try again\./)
+    await page.evaluate('document.querySelector(".error-toast").click()')
+    await openPlaylist('queue')
+    await clickPlaylistEntry(external.entries[1].id, 1)
+    await selectedEntry(external.entries[1])
+    record('external-stale-cursor-rejects-and-operation-chain-recovers', { expectedErrors: diagnostics.rendererErrors })
+    await page.evaluate(`(async () => {
+      const store = await window.karaoke.getPlaylists()
+      const queue = store.playlists.find(item => item.id === 'queue')
+      await window.karaoke.clearPlaylist({ playlistId: queue.id, expectedUpdatedAt: queue.updatedAt })
+    })()`)
+    await clickPlaylistEntry(external.entries[1].id, 1)
+    await waitFor(async () => page.evaluate(`document.querySelector('.error-toast')?.textContent.includes('The playlist changed. Refresh and try again.')`), 'already-current cursor still validates an external clear')
+    const clearedDiagnostics = await sendCommand({ action: 'diagnostics' })
+    assert.equal(clearedDiagnostics.rendererErrors.length, 2)
+    assert.equal(clearedDiagnostics.rendererErrors[1].message, 'Renderer exception: Unable to select the playlist entry')
+    assert.match(clearedDiagnostics.rendererErrors[1].detail, /The playlist changed\. Refresh and try again\./)
+    assert.equal(await page.evaluate('document.querySelector("audio").paused'), true)
+    record('external-clear-rejects-already-current-cursor', { expectedErrors: clearedDiagnostics.rendererErrors })
+    await page.evaluate('document.querySelector(".error-toast").click()')
+    await openPlaylist('queue')
+    await capture('playlist-mutation-recovery')
+    assert.deepEqual((await sendCommand({ action: 'diagnostics' })).rendererErrors, clearedDiagnostics.rendererErrors)
+    await page.evaluate(`(async () => {
+      let store = await window.karaoke.getPlaylists()
+      for (const playlistId of ['queue', 'history']) {
+        const playlist = store.playlists.find(item => item.id === playlistId)
+        store = await window.karaoke.clearPlaylist({ playlistId, expectedUpdatedAt: playlist.updatedAt })
+      }
+    })()`)
+    await stop()
+    await start()
+    await waitFor(async () => page.evaluate(`document.querySelectorAll('[data-testid="song-row"]').length === 2`), 'fresh renderer after deliberately rejected external mutation')
   }
 
   async function runPlaylistClickRegressions() {
@@ -906,7 +1220,10 @@ async function runRendered() {
     await page.evaluate(`window.__qa.processUpdate(${JSON.stringify({
       ...rematchUpdate('failed'), song: { ...backendSong, lyricRematchStatus: 'failed', lyricRematchMessage: ownedFailure },
     })})`)
-    const multiline = await page.evaluate(`document.querySelector('[data-testid="lyrics-rematch-status"]').textContent`)
+    const multiline = await waitFor(async () => {
+      const text = await page.evaluate(`document.querySelector('[data-testid="lyrics-rematch-status"]')?.textContent`)
+      return text?.includes(rawDiagnostic) ? text : undefined
+    }, 'rendered multiline rematch diagnostic update')
     assert.ok(multiline.includes(rawDiagnostic), 'Multiline OS/engine diagnostic payload is unchanged')
     assert.ok(multiline.includes('Le texte et la synchronisation enregistrés ont été conservés'))
     assert.doesNotMatch(multiline, /Timing rematch failed|Lyric timing rematch failed|Saved lyric text/)
@@ -999,7 +1316,17 @@ async function runRendered() {
       return text.includes('Lyrics Edit Fixture') && text.includes('Extract with local AI') ? text : undefined
     }, 'rendered library')
     await waitFor(async () => page.evaluate('document.querySelector("audio")?.readyState >= 3'), 'playable generated source')
+    await runQueueTransportRegressions()
+    await runPlaylistMutationRegressions()
     await runPlaylistClickRegressions()
+    if (process.argv.includes('--playlists-rendered')) {
+      const diagnostics = await sendCommand({ action: 'diagnostics' })
+      assert.deepEqual(diagnostics.rendererErrors, [])
+      await writeFile(path.join(output, 'report.json'), JSON.stringify({ status: 'passed', cases,
+        rendererErrors: diagnostics.rendererErrors }, null, 2))
+      console.log(`PASS playlists-rendered: ${cases.length} rendered gates; evidence ${output}`)
+      return
+    }
     await page.evaluate(`document.querySelector('[data-testid="song-menu-lyrics-edit-other"]').click()`)
     await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[data-testid="add-to-playlist-queue"]'))`), 'real queue plus menu')
     await page.evaluate(`document.querySelector('[data-testid="add-to-playlist-queue"]').click()`)
@@ -1223,7 +1550,14 @@ async function runRendered() {
       ] }, null, 2))
     console.log(`PASS lyrics-language-rendered: ${cases.length} rendered gates; evidence ${output}`)
   } catch (error) {
-    await writeFile(path.join(output, 'report.json'), JSON.stringify({ status: 'failed', cases, error: error.stack }, null, 2))
+    const status = await sendCommand({ action: 'status' }, { timeoutMs: 1000 }).catch(reason => ({ unavailable: reason.message }))
+    const media = await page.evaluate(`(() => {
+      const audio = document.querySelector('audio')
+      return audio ? { ended: audio.ended, paused: audio.paused, time: audio.currentTime, duration: audio.duration,
+        intent: audio.dataset.playbackIntent, trace: audio.dataset.playbackTrace, error: audio.error?.code } : undefined
+    })()`).catch(reason => ({ unavailable: reason.message }))
+    await writeFile(path.join(output, 'report.json'), JSON.stringify({ status: 'failed', cases, error: error.stack, snapshot: { status, media } }, null, 2))
+    console.error(`FAIL rendered evidence ${output}`)
     console.error(stderr.slice(-4000))
     throw error
   } finally {

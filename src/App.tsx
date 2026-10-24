@@ -161,6 +161,7 @@ function App() {
   const [lyricsEditor, setLyricsEditor] = useState<LyricsEditorDraft | null>(null)
   const songsRef = useRef<Song[]>([])
   const playlistsRef = useRef(playlists)
+  const playlistOperationRef = useRef<Promise<unknown>>(Promise.resolve())
   const settingsRef = useRef(settings)
   const confirmedSettingsRef = useRef(settings)
   const settingsReadyRef = useRef(false)
@@ -180,7 +181,13 @@ function App() {
   const lyricRefs = useRef<Array<HTMLButtonElement | null>>([])
   const handledEndRef = useRef<string | undefined>(undefined)
   const playlistActivationRef = useRef(0)
+  const playlistActivationTargetRef = useRef<{ playlistId: string; entryId: string } | undefined>(undefined)
   const pendingPlaylistCursorRef = useRef<{
+    playlistId: string
+    entryId: string
+    promise: Promise<PlaylistStore>
+  } | undefined>(undefined)
+  const pendingQueueArchiveRef = useRef<{
     playlistId: string
     entryId: string
     promise: Promise<PlaylistStore>
@@ -221,8 +228,6 @@ function App() {
       || selected.languageName === 'Unknown'),
   )
   const selectedPlaylist = playlists.playlists.find((playlist) => playlist.id === playlists.selectedPlaylistId)
-  const queue = playlists.playlists.find((playlist) => playlist.kind === 'queue')
-  const history = playlists.playlists.find((playlist) => playlist.kind === 'history')
   const editorSong = songs.find((song) => song.id === lyricsEditor?.songId)
   const editorRematchFailed = editorSong?.lyricRematchStatus === 'failed'
     && editorSong.lyricsRevision === lyricsEditor?.expectedRevision
@@ -242,7 +247,6 @@ function App() {
   }) ?? -1
 
   useEffect(() => { songsRef.current = songs }, [songs])
-  useEffect(() => { playlistsRef.current = playlists }, [playlists])
   useEffect(() => {
     document.documentElement.lang = settings.uiLocale
   }, [settings.uiLocale])
@@ -264,16 +268,16 @@ function App() {
 
   useEffect(() => {
     let active = true
-    Promise.all([karaokeApi.getLibrary(), karaokeApi.getPlaylists()])
+    Promise.all([karaokeApi.getLibrary(), updatePlaylistStore(() => karaokeApi.getPlaylists())])
       .then(([librarySongs, store]) => {
         setSongs(librarySongs)
-        setPlaylists(store)
         const restoredPlaylist = store.playlists.find((item) => item.id === store.selectedPlaylistId)
         const restoredEntry = restoredPlaylist?.entries.find((entry) => entry.id === restoredPlaylist.currentEntryId)
-        if (restoredEntry && librarySongs.some((song) => song.id === restoredEntry.songId)) {
+        if (restoredPlaylist && restoredEntry && librarySongs.some((song) => song.id === restoredEntry.songId)) {
           setSelectedId(restoredEntry.songId)
-          setActivePlaylistId(restoredPlaylist?.id)
+          setActivePlaylistId(restoredPlaylist.id)
           setActiveEntryId(restoredEntry.id)
+          playlistActivationTargetRef.current = { playlistId: restoredPlaylist.id, entryId: restoredEntry.id }
         } else {
           setSelectedId(librarySongs[0]?.id)
         }
@@ -373,15 +377,18 @@ function App() {
     if (handledEndRef.current === endKey) return
     handledEndRef.current = endKey
 
+    const activationTarget = playlistActivationTargetRef.current
+    if (activationTarget && (activationTarget.playlistId !== activePlaylistId || activationTarget.entryId !== activeEntryId)) return
+    const store = playlistsRef.current
     if (detachedNext) {
-      const playlist = playlists.playlists.find((item) => item.id === detachedNext.playlistId)
+      const playlist = store.playlists.find((item) => item.id === detachedNext.playlistId)
       const entry = playlist?.entries.find((item) => item.id === detachedNext.entryId)
       setDetachedNext(undefined)
       if (playlist && entry) void activatePlaylistEntry(playlist, entry, 'entry-removed', true, mode)
       return
     }
 
-    const playlist = playlists.playlists.find((item) => item.id === activePlaylistId)
+    const playlist = store.playlists.find((item) => item.id === activePlaylistId)
     const currentIndex = playlist?.entries.findIndex((entry) => entry.id === activeEntryId) ?? -1
     const currentEntry = currentIndex >= 0 ? playlist?.entries[currentIndex] : undefined
     if (!playlist || !currentEntry || currentEntry.songId !== selected.id) return
@@ -646,6 +653,34 @@ function App() {
     setSelectionGeneration((generation) => generation + 1)
   }
 
+  function updatePlaylistStore(operation: (store: PlaylistStore) => Promise<PlaylistStore>) {
+    const run = async () => {
+      const store = await operation(playlistsRef.current)
+      // Publish before resolving so dependent operations never read a pre-render snapshot.
+      playlistsRef.current = store
+      setPlaylists(store)
+      return store
+    }
+    // A failed operation rejects to its caller, but must not block later user actions.
+    const result = playlistOperationRef.current.then(run, run)
+    playlistOperationRef.current = result
+    return result
+  }
+
+  function currentPlaylist(store: PlaylistStore, id: string) {
+    const playlist = store.playlists.find((item) => item.id === id)
+    if (!playlist) throw new Error('The playlist no longer exists.')
+    return playlist
+  }
+
+  function cancelPlaylistActivation(playlistId: string, entryId?: string) {
+    const target = playlistActivationTargetRef.current
+      ?? (activePlaylistId ? { playlistId: activePlaylistId, entryId: activeEntryId } : undefined)
+    if (target?.playlistId !== playlistId || (entryId && target.entryId !== entryId)) return undefined
+    playlistActivationTargetRef.current = undefined
+    return ++playlistActivationRef.current
+  }
+
   function startSong(songId: string, nextMode: AudioMode, autoPlay: boolean) {
     const sameSong = selectedId === songId
     if (!autoPlay) playback.pause()
@@ -658,6 +693,7 @@ function App() {
 
   function selectLibrarySong(id: string) {
     playlistActivationRef.current += 1
+    playlistActivationTargetRef.current = undefined
     if (id === selectedId && !activeEntryId) return
     setActivePlaylistId(undefined)
     setActiveEntryId(undefined)
@@ -668,6 +704,7 @@ function App() {
 
   function playLibrarySong(song: Song) {
     playlistActivationRef.current += 1
+    playlistActivationTargetRef.current = undefined
     setActivePlaylistId(undefined)
     setActiveEntryId(undefined)
     setDetachedNext(undefined)
@@ -690,34 +727,32 @@ function App() {
       setNotice(`${modeLabels[preferredMode]} is unavailable for ${song.title}; using Original.`)
     }
     const activation = ++playlistActivationRef.current
+    playlistActivationTargetRef.current = { playlistId: playlist.id, entryId: entry.id }
     try {
       let pending = pendingPlaylistCursorRef.current
-      const currentStore = playlistsRef.current
-      const currentPlaylist = currentStore.playlists.find((item) => item.id === playlist.id) ?? playlist
-      let store: PlaylistStore
-      if (!pending && currentPlaylist.currentEntryId === entry.id) {
-        store = currentStore
-      } else {
-        if (pending?.playlistId !== playlist.id || pending.entryId !== entry.id) {
-          pending = {
-            playlistId: playlist.id,
-            entryId: entry.id,
-            promise: karaokeApi.setPlaylistCursor({
+      if (pending?.playlistId !== playlist.id || pending.entryId !== entry.id) {
+        pending = {
+          playlistId: playlist.id,
+          entryId: entry.id,
+          promise: updatePlaylistStore(async (store) => {
+            const target = currentPlaylist(store, playlist.id)
+            if (!target.entries.some((item) => item.id === entry.id)) {
+              throw new Error('The playlist entry no longer exists.')
+            }
+            return karaokeApi.setPlaylistCursor({
               playlistId: playlist.id,
               entryId: entry.id,
-              expectedUpdatedAt: currentPlaylist.updatedAt,
-            }),
-          }
-          pendingPlaylistCursorRef.current = pending
+              expectedUpdatedAt: target.updatedAt,
+            })
+          }),
         }
-        try {
-          store = await pending.promise
-        } finally {
-          if (pendingPlaylistCursorRef.current === pending) pendingPlaylistCursorRef.current = undefined
-        }
+        pendingPlaylistCursorRef.current = pending
       }
-      playlistsRef.current = store
-      setPlaylists(store)
+      try {
+        await pending.promise
+      } finally {
+        if (pendingPlaylistCursorRef.current === pending) pendingPlaylistCursorRef.current = undefined
+      }
       if (activation !== playlistActivationRef.current) return
       setActivePlaylistId(playlist.id)
       setActiveEntryId(entry.id)
@@ -732,22 +767,39 @@ function App() {
   }
 
   async function finishQueueEntry(playlist: Playlist, entry: PlaylistEntry, autoPlayNext: boolean) {
+    const activation = ++playlistActivationRef.current
+    playlistActivationTargetRef.current = { playlistId: playlist.id, entryId: entry.id }
     try {
-      const store = await karaokeApi.archiveQueueEntry({
-        playlistId: playlist.id,
-        entryId: entry.id,
-        expectedUpdatedAt: playlist.updatedAt,
-      })
-      setPlaylists(store)
+      let pending = pendingQueueArchiveRef.current
+      if (pending?.playlistId !== playlist.id || pending.entryId !== entry.id) {
+        pending = {
+          playlistId: playlist.id,
+          entryId: entry.id,
+          promise: updatePlaylistStore((store) => karaokeApi.archiveQueueEntry({
+            playlistId: playlist.id,
+            entryId: entry.id,
+            expectedUpdatedAt: currentPlaylist(store, playlist.id).updatedAt,
+          })),
+        }
+        pendingQueueArchiveRef.current = pending
+      }
+      let store: PlaylistStore
+      try {
+        store = await pending.promise
+      } finally {
+        if (pendingQueueArchiveRef.current === pending) pendingQueueArchiveRef.current = undefined
+      }
+      if (activation !== playlistActivationRef.current) return
       const updatedQueue = store.playlists.find((item) => item.kind === 'queue')
       const nextEntry = updatedQueue?.entries[0]
       if (updatedQueue && nextEntry) {
         await activatePlaylistEntry(updatedQueue, nextEntry, 'natural-end', autoPlayNext, mode)
       } else {
-        playback.pause()
+        if (playbackStatus !== 'ended') playback.pause()
         setActivePlaylistId(undefined)
         setActiveEntryId(undefined)
         setPendingAutoPlay(false)
+        playlistActivationTargetRef.current = undefined
         markTransition('natural-end')
       }
     } catch (reason) {
@@ -756,7 +808,9 @@ function App() {
   }
 
   async function playNext() {
-    const playlist = playlists.playlists.find((item) => item.id === activePlaylistId)
+    const store = playlistsRef.current
+    const queue = store.playlists.find((item) => item.kind === 'queue')
+    const playlist = store.playlists.find((item) => item.id === activePlaylistId)
     const currentIndex = playlist?.entries.findIndex((entry) => entry.id === activeEntryId) ?? -1
     const currentEntry = currentIndex >= 0 ? playlist?.entries[currentIndex] : undefined
     if (playlist?.kind === 'queue' && currentEntry) {
@@ -775,7 +829,9 @@ function App() {
   }
 
   async function playPrevious() {
-    const playlist = playlists.playlists.find((item) => item.id === activePlaylistId)
+    const store = playlistsRef.current
+    const history = store.playlists.find((item) => item.kind === 'history')
+    const playlist = store.playlists.find((item) => item.id === activePlaylistId)
     const currentIndex = playlist?.entries.findIndex((entry) => entry.id === activeEntryId) ?? -1
     const previousEntry = playlist?.kind === 'history' && currentIndex >= 0
       ? playlist.entries[currentIndex + 1]
@@ -786,6 +842,9 @@ function App() {
     if (targetPlaylist && previousEntry) {
       await activatePlaylistEntry(targetPlaylist, previousEntry, 'manual-playlist', true, mode)
     } else if (selected) {
+      playlistActivationRef.current += 1
+      playlistActivationTargetRef.current = activePlaylistId && activeEntryId
+        ? { playlistId: activePlaylistId, entryId: activeEntryId } : undefined
       playback.seekTo(0)
       void playback.play()
     }
@@ -871,19 +930,28 @@ function App() {
   }
 
   async function removeSong(song: Song) {
+    const target = playlistActivationTargetRef.current
+    const targetEntry = target && playlistsRef.current.playlists.find((item) => item.id === target.playlistId)
+      ?.entries.find((item) => item.id === target.entryId)
+    const affectsSelection = targetEntry ? targetEntry.songId === song.id : selectedId === song.id
+    const activation = affectsSelection ? ++playlistActivationRef.current : undefined
+    if (affectsSelection) playlistActivationTargetRef.current = undefined
     try {
-      const wasSelected = selectedId === song.id
-      const librarySongs = await karaokeApi.removeSong(song.id)
-      const store = await karaokeApi.getPlaylists()
-      setSongs(librarySongs)
-      setPlaylists(store)
-      if (wasSelected) {
+      await updatePlaylistStore(async () => {
+        const librarySongs = await karaokeApi.removeSong(song.id)
+        songsRef.current = librarySongs
+        setSongs(librarySongs)
+        return karaokeApi.getPlaylists()
+      })
+      if (activation !== undefined && activation === playlistActivationRef.current) {
         playback.pause()
         playback.resetForSong()
-        setSelectedId(librarySongs[0]?.id)
+        setSelectedId(songsRef.current[0]?.id)
         setMode('original')
         setActivePlaylistId(undefined)
         setActiveEntryId(undefined)
+        setDetachedNext(undefined)
+        setPendingAutoPlay(false)
         markTransition('song-removed')
       }
     } catch (reason) {
@@ -893,8 +961,7 @@ function App() {
 
   async function choosePlaylist(playlist: Playlist) {
     try {
-      const store = await karaokeApi.selectPlaylist({ playlistId: playlist.id })
-      setPlaylists(store)
+      await updatePlaylistStore(() => karaokeApi.selectPlaylist({ playlistId: playlist.id }))
     } catch (reason) {
       showError('Unable to open the playlist', reason)
     }
@@ -902,12 +969,11 @@ function App() {
 
   async function addToPlaylist(songId: string, playlist: Playlist) {
     try {
-      const store = await karaokeApi.addSongToPlaylist({
+      await updatePlaylistStore((store) => karaokeApi.addSongToPlaylist({
         playlistId: playlist.id,
         songId,
-        expectedUpdatedAt: playlist.updatedAt,
-      })
-      setPlaylists(store)
+        expectedUpdatedAt: currentPlaylist(store, playlist.id).updatedAt,
+      }))
       setNotice({ addedToPlaylist: { kind: playlist.kind, name: playlist.name } })
       closeMenu()
     } catch (reason) {
@@ -918,20 +984,19 @@ function App() {
   async function createPlaylist(event: React.FormEvent) {
     event.preventDefault()
     try {
-      let store = await karaokeApi.createPlaylist({ name: playlistName })
+      const store = await updatePlaylistStore(() => karaokeApi.createPlaylist({ name: playlistName }))
       const created = store.playlists.at(-1)
       if (created && createForSongId) {
-        store = await karaokeApi.addSongToPlaylist({
+        await updatePlaylistStore((current) => karaokeApi.addSongToPlaylist({
           playlistId: created.id,
           songId: createForSongId,
-          expectedUpdatedAt: created.updatedAt,
-        })
+          expectedUpdatedAt: currentPlaylist(current, created.id).updatedAt,
+        }))
         setNotice(`Created ${created.name} and added the song.`)
       } else if (created) {
-        store = await karaokeApi.selectPlaylist({ playlistId: created.id })
+        await updatePlaylistStore(() => karaokeApi.selectPlaylist({ playlistId: created.id }))
         setNotice(`Created ${created.name}.`)
       }
-      setPlaylists(store)
       setPlaylistName('')
       setShowCreatePlaylist(false)
       setCreateForSongId(undefined)
@@ -942,27 +1007,31 @@ function App() {
   }
 
   async function removeEntry(playlist: Playlist, entry: PlaylistEntry) {
-    const index = playlist.entries.findIndex((item) => item.id === entry.id)
-    const followingCandidate = playlist.entries[index + 1]
-    const pausedCandidate = followingCandidate ?? playlist.entries[index - 1]
     const removingActive = activePlaylistId === playlist.id && activeEntryId === entry.id
+    const activation = cancelPlaylistActivation(playlist.id, entry.id)
     try {
-      const store = await karaokeApi.removePlaylistEntry({
-        playlistId: playlist.id,
-        entryId: entry.id,
-        expectedUpdatedAt: playlist.updatedAt,
+      let followingId: string | undefined
+      const store = await updatePlaylistStore((current) => {
+        const target = currentPlaylist(current, playlist.id)
+        const index = target.entries.findIndex((item) => item.id === entry.id)
+        followingId = target.entries[index + 1]?.id
+        return karaokeApi.removePlaylistEntry({
+          playlistId: playlist.id,
+          entryId: entry.id,
+          expectedUpdatedAt: target.updatedAt,
+        })
       })
-      setPlaylists(store)
-      if (!removingActive) return
+      if (!removingActive || activation === undefined || activation !== playlistActivationRef.current) return
+      const updatedPlaylist = store.playlists.find((item) => item.id === playlist.id)
+      const followingCandidate = updatedPlaylist?.entries.find((item) => item.id === followingId)
+      const pausedCandidate = updatedPlaylist?.entries.find((item) => item.id === updatedPlaylist.currentEntryId)
       if (isPlaying) {
         setActiveEntryId(undefined)
         setDetachedNext(followingCandidate ? { playlistId: playlist.id, entryId: followingCandidate.id } : undefined)
         markTransition('entry-removed')
       } else if (pausedCandidate) {
-        const updatedPlaylist = store.playlists.find((item) => item.id === playlist.id)
-        const updatedEntry = updatedPlaylist?.entries.find((item) => item.id === pausedCandidate.id)
-        if (updatedPlaylist && updatedEntry) {
-          await activatePlaylistEntry(updatedPlaylist, updatedEntry, 'entry-removed', false)
+        if (updatedPlaylist) {
+          await activatePlaylistEntry(updatedPlaylist, pausedCandidate, 'entry-removed', false)
         }
       } else {
         playback.pause()
@@ -979,16 +1048,18 @@ function App() {
 
   async function clearCurrentPlaylist() {
     if (!selectedPlaylist) return
+    const activation = cancelPlaylistActivation(selectedPlaylist.id)
     try {
-      const store = await karaokeApi.clearPlaylist({
+      await updatePlaylistStore((store) => karaokeApi.clearPlaylist({
         playlistId: selectedPlaylist.id,
-        expectedUpdatedAt: selectedPlaylist.updatedAt,
-      })
-      setPlaylists(store)
-      if (activePlaylistId === selectedPlaylist.id) {
+        expectedUpdatedAt: currentPlaylist(store, selectedPlaylist.id).updatedAt,
+      }))
+      if (activation !== undefined && activation === playlistActivationRef.current) {
         playback.pause()
         setActivePlaylistId(undefined)
         setActiveEntryId(undefined)
+        setDetachedNext(undefined)
+        setPendingAutoPlay(false)
       }
     } catch (reason) {
       showError('Unable to clear the playlist', reason)
@@ -999,12 +1070,11 @@ function App() {
     event.preventDefault()
     if (!selectedPlaylist || selectedPlaylist.kind === 'queue') return
     try {
-      const store = await karaokeApi.renamePlaylist({
+      await updatePlaylistStore((store) => karaokeApi.renamePlaylist({
         playlistId: selectedPlaylist.id,
         name: renameName,
-        expectedUpdatedAt: selectedPlaylist.updatedAt,
-      })
-      setPlaylists(store)
+        expectedUpdatedAt: currentPlaylist(store, selectedPlaylist.id).updatedAt,
+      }))
       setShowRenamePlaylist(false)
       setNotice(`Renamed playlist to ${renameName.trim()}.`)
     } catch (reason) {
@@ -1014,17 +1084,19 @@ function App() {
 
   async function deleteCurrentPlaylist() {
     if (!selectedPlaylist || selectedPlaylist.kind === 'queue') return
+    const activation = cancelPlaylistActivation(selectedPlaylist.id)
     try {
       const deletingId = selectedPlaylist.id
-      const store = await karaokeApi.deletePlaylist({
+      await updatePlaylistStore((store) => karaokeApi.deletePlaylist({
         playlistId: deletingId,
-        expectedUpdatedAt: selectedPlaylist.updatedAt,
-      })
-      setPlaylists(store)
+        expectedUpdatedAt: currentPlaylist(store, deletingId).updatedAt,
+      }))
       setConfirmDelete(false)
-      if (activePlaylistId === deletingId) {
+      if (activation !== undefined && activation === playlistActivationRef.current) {
         setActivePlaylistId(undefined)
         setActiveEntryId(undefined)
+        setDetachedNext(undefined)
+        setPendingAutoPlay(false)
       }
       setNotice('Playlist deleted. Library songs were not removed.')
     } catch (reason) {
