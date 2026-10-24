@@ -51,8 +51,20 @@ button:disabled { cursor: not-allowed; }
 
 .brand-name { font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: -.2px; }
 .privacy-pill { display: flex; align-items: center; gap: 5px; margin-left: 8px; padding: 4px 8px; color: #8e8e99; font-size: 10px; border: 1px solid #29292e; border-radius: 20px; }
-.diagnostics-link { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 5px; margin-left: auto; margin-right: 136px; padding: 5px 8px; color: #74747e; font-size: 9px; border: 0; border-radius: 6px; background: transparent; }
+.titlebar-actions { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; margin-left: auto; margin-right: 136px; }
+.header-control { display: flex; align-items: center; gap: 4px; color: #8e8e99; font-size: 9px; font-weight: 700; }
+.header-control select { max-width: 150px; height: 22px; padding: 0 6px; color: #eeeaf1; border: 1px solid #29292e; border-radius: 6px; background: #141217; font-size: 10px; }
+.header-control select:disabled, .locale-switch button:disabled, .lyrics-edit-button:disabled { opacity: .45; }
+.locale-switch { display: flex; overflow: hidden; border: 1px solid #29292e; border-radius: 6px; }
+.locale-switch button { padding: 3px 7px; color: #8e8e99; border: 0; background: transparent; font-size: 10px; font-weight: 700; }
+.locale-switch button[aria-pressed="true"] { color: #f4f4f5; background: #2a2138; }
+.diagnostics-link { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 5px; padding: 5px 8px; color: #74747e; font-size: 9px; border: 0; border-radius: 6px; background: transparent; }
 .diagnostics-link:hover { color: #c4b5fd; background: #1b1820; }
+@media (max-width: 1180px) {
+  .privacy-pill { display: none; }
+  .header-control span { display: none; }
+}
+.header-settings-note { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .sidebar {
   display: flex;
@@ -251,6 +263,20 @@ h1 { margin: 0; font-size: 27px; letter-spacing: -1px; }
 .deliverable-issue button:disabled, .lyrics-empty button:disabled { color: #77717e; border-color: #3a3540; }
 
 .lyrics-panel { min-height: 220px; overflow: hidden; border: 1px solid #25252a; border-radius: 12px; background: #101013; }
+.lyrics-panel-actions { display: flex; align-items: center; gap: 8px; }
+.lyrics-edit-button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; color: #ddd7e6; border: 1px solid #39333f; border-radius: 6px; background: #1b181e; font-size: 10px; font-weight: 700; }
+.lyrics-protected, .lyrics-rematch { margin: 0; padding: 8px 15px 0; color: #b7a6cf; font-size: 10px; line-height: 1.45; }
+.lyrics-rematch[data-status="failed"] { color: #fecaca; }
+.lyrics-rematch[data-status="pending"] { color: #d6c38a; }
+.playlist-dialog.lyrics-editor { width: min(680px, calc(100vw - 32px)); max-height: min(88vh, 760px); display: flex; flex-direction: column; overflow-y: auto; }
+.lyrics-editor-backdrop { z-index: 70; }
+.lyrics-editor p { margin: 8px 0 0; }
+.lyrics-editor label { display: grid; gap: 7px; margin: 12px 0; color: #8d8792; font-size: 10px; font-weight: 700; }
+.lyrics-editor textarea { width: 100%; min-height: 280px; max-height: 46vh; padding: 12px; color: #eeeaf1; border: 1px solid #39333f; border-radius: 8px; background: #0f0e11; resize: vertical; line-height: 1.55; font-size: 13px; }
+.lyrics-editor .lyrics-editor-status { flex: 0 1 auto; min-height: 2.6em; max-height: 18vh; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; margin: 0 0 12px; color: #b7b1bd; font-size: 11px; line-height: 1.45; }
+.lyrics-editor-status[data-state="failed"], .lyrics-editor-status[data-state="conflict"] { color: #fecaca; }
+.lyrics-editor .dialog-actions .primary-button { width: auto; }
+.lyrics-editor .dialog-actions button:disabled { opacity: .45; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid #222227; }
 .panel-title .eyebrow { margin-bottom: 2px; font-size: 7px; }
 .panel-title h3 { margin: 0; font-size: 13px; }

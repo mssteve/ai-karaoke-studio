@@ -19,6 +19,7 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  Pencil,
   Sparkles,
   Trash2,
   Volume2,
@@ -29,6 +30,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { karaokeApi } from './api'
 import type {
+  AppSettings,
   Playlist,
   PlaylistEntry,
   PlaylistStore,
@@ -37,8 +39,31 @@ import type {
   ProcessingComponentId,
   ProcessingItem,
   ProcessingItemId,
+  RecognitionLanguageMode,
   Song,
+  UpdateAppSettingsRequest,
 } from './types'
+import {
+  defaultAppSettings,
+  editorTextFromSong,
+  editorTextFromInput,
+  replaceEditorSelection,
+  hasUsableLyricLines,
+  isRecognitionLanguageMode,
+  localeTag,
+  lyricsBusyMessage,
+  lyricsEditorStatusMessage,
+  lyricsRematchMessage,
+  lyricsTextSourceLabel,
+  normalizeAppSettings,
+  playlistDisplayName,
+  recognitionLanguageOptions,
+  reduceLyricsEditor,
+  translate,
+  translateJoined,
+  type LyricsEditorDraft,
+  type LyricsEditorSongSnapshot,
+} from './i18n'
 import { mergeProcessUpdate, processingItemDetail, processingStatusLabels } from './processingUi'
 import {
   claimRetry,
@@ -105,8 +130,12 @@ function App() {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<AudioMode>('original')
   const [volume, setVolume] = useState(0.82)
-  const [error, setError] = useState<string>()
-  const [notice, setNotice] = useState<string>()
+  const [error, setError] = useState<{
+    message: string
+    detail?: string
+    playlist?: Pick<Playlist, 'kind' | 'name'>
+  }>()
+  const [notice, setNotice] = useState<string | { addedToPlaylist: Pick<Playlist, 'kind' | 'name'> }>()
   const [isLoading, setIsLoading] = useState(true)
   const [isImporting, setIsImporting] = useState(false)
   const [menuSongId, setMenuSongId] = useState<string>()
@@ -126,13 +155,46 @@ function App() {
   const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
   const [pendingRetries, setPendingRetries] = useState<string[]>([])
   const [detachedNext, setDetachedNext] = useState<{ playlistId: string; entryId: string }>()
+  const [settings, setSettings] = useState<AppSettings>(defaultAppSettings)
+  const [settingsReady, setSettingsReady] = useState(false)
+  const [settingsBusy, setSettingsBusy] = useState(false)
+  const [lyricsEditor, setLyricsEditor] = useState<LyricsEditorDraft | null>(null)
   const songsRef = useRef<Song[]>([])
+  const playlistsRef = useRef(playlists)
+  const settingsRef = useRef(settings)
+  const confirmedSettingsRef = useRef(settings)
+  const settingsReadyRef = useRef(false)
+  const settingsBusyCountRef = useRef(0)
+  const lyricsSaveSeq = useRef(0)
+  const latestLyricsSaveRef = useRef(new Map<string, number>())
+  const lyricsPasteRef = useRef<{
+    songId: string
+    previousText: string
+    text: string
+    expectedInput: string
+  } | null>(null)
+  const lyricsEditorDialogRef = useRef<HTMLDivElement>(null)
+  const editLyricsButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuButtonRefs = useRef(new Map<string, HTMLButtonElement>())
   const lyricRefs = useRef<Array<HTMLButtonElement | null>>([])
   const handledEndRef = useRef<string | undefined>(undefined)
+  const playlistActivationRef = useRef(0)
+  const pendingPlaylistCursorRef = useRef<{
+    playlistId: string
+    entryId: string
+    promise: Promise<PlaylistStore>
+  } | undefined>(undefined)
   const pendingRetryKeysRef = useRef(new Set<string>())
   const microphoneWarningShownRef = useRef(false)
+  const t = (message: string) => translate(settings.uiLocale, message)
+  const tParts = (message: string) => translateJoined(settings.uiLocale, message)
+  const noticeText = typeof notice === 'string' ? t(notice)
+    : notice ? t(`Added to ${playlistDisplayName(settings.uiLocale, notice.addedToPlaylist)}.`) : undefined
+  const errorText = error
+    ? (error.playlist ? t(`Unable to add the song to ${playlistDisplayName(settings.uiLocale, error.playlist)}`) : t(error.message))
+      + (error.detail ? `${settings.uiLocale === 'fr' ? ' : ' : ': '}${t(error.detail)}` : '')
+    : undefined
 
   const selected = songs.find((song) => song.id === selectedId)
   const processingDetails = selected?.processingDetails
@@ -161,6 +223,10 @@ function App() {
   const selectedPlaylist = playlists.playlists.find((playlist) => playlist.id === playlists.selectedPlaylistId)
   const queue = playlists.playlists.find((playlist) => playlist.kind === 'queue')
   const history = playlists.playlists.find((playlist) => playlist.kind === 'history')
+  const editorSong = songs.find((song) => song.id === lyricsEditor?.songId)
+  const editorRematchFailed = editorSong?.lyricRematchStatus === 'failed'
+    && editorSong.lyricsRevision === lyricsEditor?.expectedRevision
+    && lyricsEditor?.text === lyricsEditor?.baselineText
   const playback = usePlaybackController({ selected, mode, onError: showError })
   const microphone = useMicrophoneMonitor()
   const { audioRef, currentTime, duration, status: playbackStatus, isPlaying } = playback
@@ -176,6 +242,19 @@ function App() {
   }) ?? -1
 
   useEffect(() => { songsRef.current = songs }, [songs])
+  useEffect(() => { playlistsRef.current = playlists }, [playlists])
+  useEffect(() => {
+    document.documentElement.lang = settings.uiLocale
+  }, [settings.uiLocale])
+  useEffect(() => {
+    const song = selected ? {
+      songId: selected.id,
+      songTitle: selected.title,
+      text: editorTextFromSong(selected),
+      revision: selected.lyricsRevision ?? 0,
+    } : undefined
+    setLyricsEditor((current) => reduceLyricsEditor(current, { type: 'song-changed', song }))
+  }, [selected?.id, selected?.title, selected?.lyrics, selected?.lyricsRevision])
 
   useEffect(() => {
     if (!selected || getModeSource(selected, mode)) return
@@ -184,6 +263,7 @@ function App() {
   }, [selected, mode])
 
   useEffect(() => {
+    let active = true
     Promise.all([karaokeApi.getLibrary(), karaokeApi.getPlaylists()])
       .then(([librarySongs, store]) => {
         setSongs(librarySongs)
@@ -201,11 +281,29 @@ function App() {
       .catch((reason) => showError('Unable to load saved songs and playlists', reason))
       .finally(() => setIsLoading(false))
 
-    return karaokeApi.onProcessUpdate((update: ProcessUpdate) => {
+    void karaokeApi.getSettings()
+      .then((loaded) => {
+        if (!active) return
+        const normalized = normalizeAppSettings(loaded)
+        settingsRef.current = normalized
+        confirmedSettingsRef.current = normalized
+        setSettings(normalized)
+        settingsReadyRef.current = true
+        setSettingsReady(true)
+      })
+      .catch((reason) => {
+        if (active) showError('Unable to load interface settings', reason)
+      })
+
+    const unsubscribe = karaokeApi.onProcessUpdate((update: ProcessUpdate) => {
       setSongs((current) => current.map((song) => song.id === update.songId
         ? mergeProcessUpdate(song, update)
         : song))
     })
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -340,7 +438,7 @@ function App() {
           entries: playlist.entries.map((entry) => ({ id: entry.id, songId: entry.songId })),
         })),
       },
-      error,
+      error: error ? `${error.message}${error.detail ? `: ${error.detail}` : ''}` : undefined,
     })
   }, [
     selected?.id, selected?.lyricLanguage, mode, playback.loadedSourceKey, playbackStatus, currentTime, duration,
@@ -348,10 +446,150 @@ function App() {
     transitionReason, transitionCount,
   ])
 
-  function showError(message: string, reason?: unknown) {
+  function showError(message: string, reason?: unknown, playlist?: Pick<Playlist, 'kind' | 'name'>) {
     const detail = reason instanceof Error ? reason.message : reason === undefined ? undefined : String(reason)
-    setError(detail ? `${message}: ${detail}` : message)
+    setError({ message, detail, playlist })
     void karaokeApi.reportRendererError(message, detail).catch(() => undefined)
+  }
+
+  function setSettingsBusyCount(delta: number) {
+    settingsBusyCountRef.current += delta
+    setSettingsBusy(settingsBusyCountRef.current > 0)
+  }
+
+  async function changeSettings(patch: UpdateAppSettingsRequest) {
+    if (!settingsReadyRef.current || settingsBusyCountRef.current > 0) return
+    const next = { ...settingsRef.current, ...patch }
+    settingsRef.current = next
+    setSettings(next)
+    setSettingsBusyCount(1)
+    try {
+      const saved = normalizeAppSettings(await karaokeApi.updateSettings(patch))
+      confirmedSettingsRef.current = saved
+      settingsRef.current = saved
+      setSettings(saved)
+    } catch (reason) {
+      settingsRef.current = confirmedSettingsRef.current
+      setSettings(confirmedSettingsRef.current)
+      showError('Unable to save interface settings', reason)
+    } finally {
+      setSettingsBusyCount(-1)
+    }
+  }
+
+  function songLyricSnapshot(song: Song): LyricsEditorSongSnapshot {
+    return {
+      songId: song.id,
+      songTitle: song.title,
+      text: editorTextFromSong(song),
+      revision: song.lyricsRevision ?? 0,
+    }
+  }
+
+  function lyricsAreProtected(song?: Song) {
+    return (song?.lyricTextSource ?? 'engine') === 'user'
+  }
+
+  function lyricsAreBusy(song?: Song) {
+    if (!song) return false
+    return ['queued', 'preparing', 'separating', 'enhancing', 'transcribing'].includes(song.processingStage)
+      || (song.lyricRematchStatus ?? 'none') === 'pending'
+      || (lyricsEditor?.songId === song.id && lyricsEditor.saving)
+  }
+
+  function openLyricsEditor() {
+    if (!selected || lyricsAreBusy(selected)) return
+    setLyricsEditor((current) => reduceLyricsEditor(current, { type: 'open', song: songLyricSnapshot(selected) }))
+  }
+
+  function requestCloseLyricsEditor() {
+    setLyricsEditor((current) => {
+      if (current?.discardPrompt) return reduceLyricsEditor(current, { type: 'keep-editing' })
+      return reduceLyricsEditor(current, { type: 'request-close' })
+    })
+  }
+
+  function reloadSavedLyrics() {
+    if (!lyricsEditor || lyricsEditor.saving) return
+    const song = songsRef.current.find((item) => item.id === lyricsEditor.songId)
+    if (!song) return
+    setLyricsEditor((current) => reduceLyricsEditor(current, {
+      type: 'reload-saved',
+      text: editorTextFromSong(song),
+      revision: song.lyricsRevision ?? 0,
+    }))
+  }
+
+  async function submitLyricsUpdate() {
+    if (!lyricsEditor || lyricsEditor.saving || lyricsEditor.discardPrompt) return
+    const song = songsRef.current.find((item) => item.id === lyricsEditor.songId)
+    if (!song || lyricsAreBusy(song)) {
+      showError('Unable to update lyrics', lyricsBusyMessage)
+      return
+    }
+    if (!hasUsableLyricLines(lyricsEditor.text)) {
+      showError('Unable to update lyrics', lyricsEditor.text.trim()
+        ? 'Edited lyrics contain no usable lines.'
+        : 'Edited lyrics are empty.')
+      return
+    }
+    const saveId = ++lyricsSaveSeq.current
+    const snapshot = lyricsEditor
+    latestLyricsSaveRef.current.set(snapshot.songId, saveId)
+    setLyricsEditor((current) => reduceLyricsEditor(current, { type: 'save-start', saveId }))
+    try {
+      const result = await karaokeApi.updateLyrics({
+        songId: snapshot.songId,
+        text: snapshot.text,
+        expectedRevision: snapshot.expectedRevision,
+      })
+      if (latestLyricsSaveRef.current.get(snapshot.songId) !== saveId) return
+      if (result.song?.id !== snapshot.songId || (result.rematch !== 'queued' && result.rematch !== 'skipped')) {
+        throw new Error(lyricsBusyMessage)
+      }
+      setSongs((current) => current.map((item) => {
+        if (item.id !== result.song.id) return item
+        // A fast rematch can publish its terminal result before the save IPC acknowledges.
+        if ((item.lyricsRevision ?? 0) > (result.song.lyricsRevision ?? 0)
+          || (item.lyricsRevision === result.song.lyricsRevision
+            && result.song.lyricRematchStatus === 'pending'
+            && ['complete', 'failed', 'skipped'].includes(item.lyricRematchStatus))) return item
+        return {
+          ...item,
+          ...result.song,
+          sourceUrl: result.song.sourceUrl || item.sourceUrl,
+          sourcePath: result.song.sourcePath || item.sourcePath,
+          instrumentalUrl: result.song.instrumentalUrl ?? item.instrumentalUrl,
+          instrumentalPath: result.song.instrumentalPath ?? item.instrumentalPath,
+          vocalUrl: result.song.vocalUrl ?? item.vocalUrl,
+          vocalPath: result.song.vocalPath ?? item.vocalPath,
+          enhancedUrl: result.song.enhancedUrl ?? item.enhancedUrl,
+          enhancedPath: result.song.enhancedPath ?? item.enhancedPath,
+        }
+      }))
+      setLyricsEditor((current) => reduceLyricsEditor(current, {
+        type: 'save-result',
+        saveId,
+        songId: snapshot.songId,
+        ok: true,
+        submittedText: snapshot.text,
+        revision: result.song.lyricsRevision ?? snapshot.expectedRevision,
+        rematch: result.rematch,
+      }))
+    } catch (reason) {
+      if (latestLyricsSaveRef.current.get(snapshot.songId) !== saveId) return
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      setLyricsEditor((current) => reduceLyricsEditor(current, {
+        type: 'save-result',
+        saveId,
+        songId: snapshot.songId,
+        ok: false,
+        submittedText: snapshot.text,
+        conflict: detail.includes('Lyric revision conflict.'),
+        detail,
+      }))
+      showError('Unable to update lyrics', reason)
+    }
   }
 
   function toggleMicrophoneMonitor() {
@@ -419,6 +657,7 @@ function App() {
   }
 
   function selectLibrarySong(id: string) {
+    playlistActivationRef.current += 1
     if (id === selectedId && !activeEntryId) return
     setActivePlaylistId(undefined)
     setActiveEntryId(undefined)
@@ -428,6 +667,7 @@ function App() {
   }
 
   function playLibrarySong(song: Song) {
+    playlistActivationRef.current += 1
     setActivePlaylistId(undefined)
     setActiveEntryId(undefined)
     setDetachedNext(undefined)
@@ -449,20 +689,45 @@ function App() {
       nextMode = 'original'
       setNotice(`${modeLabels[preferredMode]} is unavailable for ${song.title}; using Original.`)
     }
+    const activation = ++playlistActivationRef.current
     try {
-      const store = await karaokeApi.setPlaylistCursor({
-        playlistId: playlist.id,
-        entryId: entry.id,
-        expectedUpdatedAt: playlist.updatedAt,
-      })
+      let pending = pendingPlaylistCursorRef.current
+      const currentStore = playlistsRef.current
+      const currentPlaylist = currentStore.playlists.find((item) => item.id === playlist.id) ?? playlist
+      let store: PlaylistStore
+      if (!pending && currentPlaylist.currentEntryId === entry.id) {
+        store = currentStore
+      } else {
+        if (pending?.playlistId !== playlist.id || pending.entryId !== entry.id) {
+          pending = {
+            playlistId: playlist.id,
+            entryId: entry.id,
+            promise: karaokeApi.setPlaylistCursor({
+              playlistId: playlist.id,
+              entryId: entry.id,
+              expectedUpdatedAt: currentPlaylist.updatedAt,
+            }),
+          }
+          pendingPlaylistCursorRef.current = pending
+        }
+        try {
+          store = await pending.promise
+        } finally {
+          if (pendingPlaylistCursorRef.current === pending) pendingPlaylistCursorRef.current = undefined
+        }
+      }
+      playlistsRef.current = store
       setPlaylists(store)
+      if (activation !== playlistActivationRef.current) return
       setActivePlaylistId(playlist.id)
       setActiveEntryId(entry.id)
       setDetachedNext(undefined)
       markTransition(reason)
       startSong(song.id, nextMode, autoPlay)
     } catch (reasonValue) {
-      showError('Unable to select the playlist entry', reasonValue)
+      if (activation === playlistActivationRef.current) {
+        showError('Unable to select the playlist entry', reasonValue)
+      }
     }
   }
 
@@ -552,6 +817,10 @@ function App() {
 
   async function processSelected() {
     if (!selected) return
+    if (lyricsAreProtected(selected)) {
+      showError('Unable to create the karaoke versions', 'Manual lyrics are protected from AI text replacement.')
+      return
+    }
     setError(undefined)
     try {
       const updated = await karaokeApi.processSong(selected.id)
@@ -564,6 +833,10 @@ function App() {
 
   async function retranscribeSelected() {
     if (!selected) return
+    if (lyricsAreProtected(selected)) {
+      showError('Unable to refresh lyrics and language', 'Manual lyrics are protected from AI text replacement.')
+      return
+    }
     setError(undefined)
     try {
       const updated = await karaokeApi.retranscribeSong(selected.id)
@@ -575,6 +848,10 @@ function App() {
   }
 
   async function retryFailedDeliverable(song: Song, component: ProcessingComponentId) {
+    if ((component === 'lyrics' || component === 'whisper-transcription') && lyricsAreProtected(song)) {
+      showError(`Unable to retry ${componentLabels[component]}`, 'Manual lyrics are protected from AI text replacement.')
+      return
+    }
     if (!claimRetry(pendingRetryKeysRef.current, song.id, component)) return
     const key = retryKey(song.id, component)
     setPendingRetries((current) => [...current, key])
@@ -631,10 +908,10 @@ function App() {
         expectedUpdatedAt: playlist.updatedAt,
       })
       setPlaylists(store)
-      setNotice(`Added to ${playlist.name}.`)
+      setNotice({ addedToPlaylist: { kind: playlist.kind, name: playlist.name } })
       closeMenu()
     } catch (reason) {
-      showError(`Unable to add the song to ${playlist.name}`, reason)
+      showError(`Unable to add the song to ${playlist.name}`, reason, playlist)
     }
   }
 
@@ -802,33 +1079,121 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (!lyricsEditor) return
+    const restoreFocus = editLyricsButtonRef.current
+    return () => restoreFocus?.focus()
+  }, [Boolean(lyricsEditor)])
+  useEffect(() => {
+    if (!lyricsEditor) return
+    const selector = lyricsEditor.discardPrompt
+      ? '[data-testid="lyrics-editor-discard"]'
+      : '[data-testid="lyrics-editor-text"]'
+    lyricsEditorDialogRef.current?.querySelector<HTMLElement>(selector)?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        requestCloseLyricsEditor()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const dialog = lyricsEditorDialogRef.current
+      if (!dialog) return
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled])',
+      )]
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || !dialog.contains(active)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+        return
+      }
+      if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [lyricsEditor?.songId, lyricsEditor?.discardPrompt, Boolean(lyricsEditor)])
+
   return (
     <div className="app-shell">
       <header className="titlebar">
         <div className="brand-mark"><AudioLines size={18} /></div>
         <span className="brand-name">Karaoke Studio</span>
-        <span className="privacy-pill"><HardDrive size={12} /> Private · On-device AI</span>
-        <button className="diagnostics-link" onClick={() => void karaokeApi.openDiagnostics()
-          .catch((reason) => showError('Unable to open diagnostics', reason))} aria-label="Open diagnostics folder">
-          <Bug size={12} /> Diagnostics
-        </button>
+        <span className="privacy-pill"><HardDrive size={12} /> {t('Private · On-device AI')}</span>
+        <div className="titlebar-actions">
+          <div className="header-control" data-testid="recognition-language" aria-busy={!settingsReady || settingsBusy}>
+            <span>{t('Recognition')}</span>
+            <select data-testid="recognition-language-mode" aria-label={t('Song recognition language mode')}
+              value={settings.recognitionLanguageMode} disabled={!settingsReady || settingsBusy}
+              onChange={(event) => {
+                if (!isRecognitionLanguageMode(event.target.value)) return
+                const recognitionLanguageMode: RecognitionLanguageMode = event.target.value
+                if (recognitionLanguageMode !== settings.recognitionLanguageMode) {
+                  void changeSettings({ recognitionLanguageMode })
+                }
+              }}>
+              <option value="auto">{t('Auto')}</option>
+              <option value="manual">{t('Manual')}</option>
+            </select>
+            <select data-testid="recognition-language-code" aria-label={t('Manual song recognition language')}
+              value={settings.recognitionLanguageCode}
+              disabled={!settingsReady || settingsBusy || settings.recognitionLanguageMode === 'auto'}
+              onChange={(event) => {
+                if (event.target.value !== settings.recognitionLanguageCode) {
+                  void changeSettings({ recognitionLanguageCode: event.target.value })
+                }
+              }}>
+              {recognitionLanguageOptions(settings.uiLocale, settings.recognitionLanguageCode).map((language) => (
+                <option key={language.code} value={language.code} disabled={language.unsupported}>{language.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="locale-switch" role="group" aria-label={t('Interface language')} data-testid="ui-locale">
+            <button type="button" data-testid="ui-locale-en" aria-pressed={settings.uiLocale === 'en'}
+              disabled={!settingsReady || settingsBusy} onClick={() => {
+                if (settings.uiLocale !== 'en') void changeSettings({ uiLocale: 'en' })
+              }}>English</button>
+            <button type="button" data-testid="ui-locale-fr" aria-pressed={settings.uiLocale === 'fr'}
+              disabled={!settingsReady || settingsBusy} onClick={() => {
+                if (settings.uiLocale !== 'fr') void changeSettings({ uiLocale: 'fr' })
+              }}>Français</button>
+          </div>
+          <button className="diagnostics-link" onClick={() => void karaokeApi.openDiagnostics()
+            .catch((reason) => showError('Unable to open diagnostics', reason))} aria-label={t('Open diagnostics folder')}>
+            <Bug size={12} /> {t('Diagnostics')}
+          </button>
+        </div>
+        <span className="header-settings-note">{t('Interface language does not change a song’s saved language.')} {t('Auto detects each song. Manual applies only to new recognition.')}</span>
       </header>
 
       <aside className="sidebar">
-        <nav aria-label="Main navigation">
+        <nav aria-label={t('Main navigation')}>
           <button data-testid="nav-library" className={`nav-item ${view === 'library' ? 'active' : ''}`}
             aria-current={view === 'library' ? 'page' : undefined} onClick={() => setView('library')}>
-            <Library size={18} /> Library
+            <Library size={18} /> {t('Library')}
           </button>
           <button data-testid="nav-playlists" className={`nav-item ${view === 'playlists' ? 'active' : ''}`}
             aria-current={view === 'playlists' ? 'page' : undefined} onClick={() => setView('playlists')}>
-            <ListMusic size={18} /> Playlists
+            <ListMusic size={18} /> {t('Playlists')}
           </button>
         </nav>
         <div className="sidebar-spacer" />
         <div className="local-card">
           <div className="local-card-icon"><WandSparkles size={18} /></div>
-          <div><strong>Runs locally</strong><p>Your music never leaves this PC.</p></div>
+          <div><strong>{t('Runs locally')}</strong><p>{t('Your music never leaves this PC.')}</p></div>
         </div>
       </aside>
 
@@ -837,31 +1202,31 @@ function App() {
           {view === 'library' ? (
             <>
               <div className="page-heading">
-                <div><span className="eyebrow">YOUR COLLECTION</span><h1>Song Library</h1>
-                  <p>{songs.length} {songs.length === 1 ? 'track' : 'tracks'} ready for your next performance</p></div>
+                <div><span className="eyebrow">{t('YOUR COLLECTION')}</span><h1>{t('Song Library')}</h1>
+                  <p>{t(`${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} ready for your next performance`)}</p></div>
                 <button className="primary-button" data-testid="add-songs" onClick={importSongs} disabled={isImporting}>
                   {isImporting ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
-                  {isImporting ? 'Adding…' : 'Add songs'}
+                  {isImporting ? t('Adding…') : t('Add songs')}
                 </button>
               </div>
               <div className="toolbar">
                 <label className="search"><Search size={17} /><input value={query}
-                  onChange={(event) => setQuery(event.target.value)} placeholder="Search songs or artists" /></label>
-                <span className="filter-button">FIFO playlists <ChevronRight size={15} /></span>
+                  onChange={(event) => setQuery(event.target.value)} placeholder={t('Search songs or artists')} /></label>
+                <span className="filter-button">{t('FIFO playlists')} <ChevronRight size={15} /></span>
               </div>
               {isLoading ? (
                 <div className="empty-state loading-state" role="status"><span className="empty-icon">
-                  <LoaderCircle className="spin" size={30} /></span><strong>Loading your library</strong>
-                  <span>Finding songs stored on this PC.</span></div>
+                  <LoaderCircle className="spin" size={30} /></span><strong>{t('Loading your library')}</strong>
+                  <span>{t('Finding songs stored on this PC.')}</span></div>
               ) : songs.length === 0 ? (
                 <button className="empty-state" onClick={importSongs} disabled={isImporting}>
-                  <span className="empty-icon"><Music2 size={30} /></span><strong>Bring your music to the stage</strong>
-                  <span>Import MP3 or MP4 files to create karaoke versions with local AI.</span>
-                  <span className="empty-action"><FolderOpen size={16} /> Choose songs</span>
+                  <span className="empty-icon"><Music2 size={30} /></span><strong>{t('Bring your music to the stage')}</strong>
+                  <span>{t('Import MP3 or MP4 files to create karaoke versions with local AI.')}</span>
+                  <span className="empty-action"><FolderOpen size={16} /> {t('Choose songs')}</span>
                 </button>
               ) : (
-                <div className="song-list" role="listbox" aria-label="Song library">
-                  <div className="song-list-header"><span>TRACK</span><span>STATUS</span><span>ADDED</span><span /></div>
+                <div className="song-list" role="listbox" aria-label={t('Song library')}>
+                  <div className="song-list-header"><span>{t('TRACK')}</span><span>{t('STATUS')}</span><span>{t('ADDED')}</span><span /></div>
                   {filteredSongs.map((song, index) => {
                     const isSelected = selected?.id === song.id
                     const isProcessing = ['preparing', 'separating', 'enhancing', 'transcribing'].includes(song.processingStage)
@@ -871,7 +1236,7 @@ function App() {
                           role="option" aria-selected={isSelected}
                           onClick={() => selectLibrarySong(song.id)}
                           onDoubleClick={() => playLibrarySong(song)}
-                          aria-label={`Select ${song.title} by ${song.artist}`}>
+                          aria-label={t(`Select ${song.title} by ${song.artist}`)}>
                           <span className="track-cell"><span className="track-art">
                             {isSelected && isPlaying ? <AudioLines size={19} /> : <span>{index + 1}</span>}
                           </span><span className="track-copy"><strong>{song.title}</strong>
@@ -879,23 +1244,23 @@ function App() {
                         </button>
                         <span>{song.processingStage === 'queued' ? (
                           <span className="status queued"><Clock3 size={13} /> {song.processingDetails?.queuePosition
-                            ? `Queued #${song.processingDetails.queuePosition}` : 'Queued'}</span>
+                            ? t(`Queued #${song.processingDetails.queuePosition}`) : t('Queued')}</span>
                         ) : isProcessing ? (
                           <span className="status processing"><LoaderCircle className="spin" size={13} />
-                            {song.processingProgress}%</span>
+                            {t(`${song.processingProgress}%`)}</span>
                         ) : song.processingStage === 'complete' ? (
-                          <span className="status ready"><Check size={13} /> Karaoke ready</span>
+                          <span className="status ready"><Check size={13} /> {t('Karaoke ready')}</span>
                         ) : song.processingStage === 'partial' ? (
-                          <span className="status partial">Partial · {[song.enhancedUrl, song.vocalUrl, song.instrumentalUrl]
-                            .filter(Boolean).length + 1} modes</span>
+                          <span className="status partial">{t(`Partial · ${[song.enhancedUrl, song.vocalUrl, song.instrumentalUrl]
+                            .filter(Boolean).length + 1} modes`)}</span>
                         ) : song.processingStage === 'error' ? (
-                          <span className="status error">Needs attention</span>
-                        ) : <span className="status original">Original</span>}</span>
-                        <span className="date-cell">{new Date(song.addedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                          <span className="status error">{t('Needs attention')}</span>
+                        ) : <span className="status original">{t('Original')}</span>}</span>
+                        <span className="date-cell">{new Date(song.addedAt).toLocaleDateString(localeTag(settings.uiLocale), { month: 'short', day: 'numeric' })}</span>
                         <span className="row-actions">
                           <button data-testid={`song-menu-${song.id}`} ref={(button) => {
                             if (button) menuButtonRefs.current.set(song.id, button)
-                          }} aria-label={`Add ${song.title} to a playlist`} aria-haspopup="menu"
+                          }} aria-label={t(`Add ${song.title} to a playlist`)} aria-haspopup="menu"
                             aria-expanded={menuSongId === song.id}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => {
@@ -903,7 +1268,7 @@ function App() {
                               openMenu(song.id, event.currentTarget)
                             }}
                             onDoubleClick={(event) => event.stopPropagation()}><Plus size={18} /></button>
-                          <button data-testid="remove-song" aria-label={`Remove ${song.title} from library`}
+                          <button data-testid="remove-song" aria-label={t(`Remove ${song.title} from library`)}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => {
                               event.stopPropagation()
@@ -919,52 +1284,52 @@ function App() {
             </>
           ) : (
             <div className="playlists-view">
-              <div className="page-heading"><div><span className="eyebrow">FIFO COLLECTIONS</span><h1>Playlists</h1>
-                <p>Queue order is preserved exactly as added.</p></div>
+              <div className="page-heading"><div><span className="eyebrow">{t('FIFO COLLECTIONS')}</span><h1>{t('Playlists')}</h1>
+                <p>{t('Queue order is preserved exactly as added.')}</p></div>
                 <button className="primary-button" onClick={() => {
                   setCreateForSongId(undefined)
                   setShowCreatePlaylist(true)
-                }}><Plus size={18} /> New playlist</button>
+                }}><Plus size={18} /> {t('New playlist')}</button>
               </div>
               <div className="playlist-layout">
-                <div className="playlist-tabs" aria-label="Saved playlists">
+                <div className="playlist-tabs" aria-label={t('Saved playlists')}>
                   {playlists.playlists.map((playlist) => (
                     <button key={playlist.id} data-testid={`playlist-${playlist.id}`}
                       className={selectedPlaylist?.id === playlist.id ? 'active' : ''}
                       aria-current={selectedPlaylist?.id === playlist.id ? 'true' : undefined}
                       onClick={() => void choosePlaylist(playlist)}>
-                      <ListMusic size={15} /><span>{playlist.name}</span><small>{playlist.entries.length}</small>
+                      <ListMusic size={15} /><span>{playlistDisplayName(settings.uiLocale, playlist)}</span><small>{playlist.entries.length}</small>
                     </button>
                   ))}
                 </div>
                 <div className="playlist-contents">
-                  <div className="playlist-heading"><div><span className="eyebrow">PLAYING IN ORDER</span>
-                    <h2>{selectedPlaylist?.name ?? 'Playlist'}</h2></div>
+                  <div className="playlist-heading"><div><span className="eyebrow">{t('PLAYING IN ORDER')}</span>
+                    <h2>{selectedPlaylist ? playlistDisplayName(settings.uiLocale, selectedPlaylist) : t('Playlist')}</h2></div>
                     <div>
                       <button data-testid="playlist-play" disabled={!selectedPlaylist?.entries.length} onClick={() => {
                         if (!selectedPlaylist) return
                         const entry = selectedPlaylist.entries.find((item) => item.id === selectedPlaylist.currentEntryId)
                           ?? selectedPlaylist.entries[0]
                         if (entry) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)
-                      }}><Play size={15} /> Play</button>
+                      }}><Play size={15} /> {t('Play')}</button>
                       <button data-testid="playlist-clear" disabled={!selectedPlaylist?.entries.length}
-                        onClick={() => setConfirmClear(true)}><Trash2 size={15} /> Clear</button>
+                        onClick={() => setConfirmClear(true)}><Trash2 size={15} /> {t('Clear')}</button>
                       {selectedPlaylist?.kind === 'playlist' && (
                         <>
                           <button onClick={() => {
                             setRenameName(selectedPlaylist.name)
                             setShowRenamePlaylist(true)
-                          }}>Rename</button>
-                          <button onClick={() => setConfirmDelete(true)}>Delete</button>
+                          }}>{t('Rename')}</button>
+                          <button onClick={() => setConfirmDelete(true)}>{t('Delete')}</button>
                         </>
                       )}
                     </div>
                   </div>
                   {!selectedPlaylist?.entries.length ? (
-                    <div className="playlist-empty"><ListMusic size={28} /><strong>No songs yet</strong>
+                    <div className="playlist-empty"><ListMusic size={28} /><strong>{t('No songs yet')}</strong>
                       <span>{selectedPlaylist?.kind === 'history'
-                        ? 'Songs move here after they finish playing from Queue.'
-                        : 'Use a song’s plus menu in Library to add it here.'}</span></div>
+                        ? t('Songs move here after they finish playing from Queue.')
+                        : t('Use a song’s plus menu in Library to add it here.')}</span></div>
                   ) : (
                     <ol className="playlist-entries">
                       {selectedPlaylist.entries.map((entry, index) => {
@@ -973,13 +1338,16 @@ function App() {
                         return (
                           <li key={entry.id} className={current ? 'current' : ''}>
                             <button data-testid={`playlist-entry-${entry.id}`}
-                                  onClick={() => void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', false)}>
-                              <span>{index + 1}</span><span><strong>{song?.title ?? 'Missing song'}</strong>
-                                <small>{song?.artist ?? 'Unavailable'}</small></span>
-                              {current && <span className="queue-current">Current</span>}
+                              onClick={(event) => {
+                                if (event.detail < 2) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', false)
+                              }}
+                              onDoubleClick={() => void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)}>
+                              <span>{index + 1}</span><span><strong>{song?.title ?? t('Missing song')}</strong>
+                                <small>{song?.artist ?? t('Unavailable')}</small></span>
+                              {current && <span className="queue-current">{t('Current')}</span>}
                             </button>
                             <button data-testid={`playlist-remove-${entry.id}`}
-                              aria-label={`Remove ${song?.title ?? 'song'} from ${selectedPlaylist.name}`}
+                              aria-label={t(`Remove ${song?.title ?? 'song'} from ${playlistDisplayName(settings.uiLocale, selectedPlaylist)}`)}
                               onClick={() => void removeEntry(selectedPlaylist, entry)}><X size={16} /></button>
                           </li>
                         )
@@ -997,8 +1365,8 @@ function App() {
             <>
               <div className="now-playing"><div className="large-art"><Disc3 size={58} strokeWidth={1.3} />
                 <span className={isPlaying ? 'pulse-ring playing' : 'pulse-ring'} /></div>
-                <span className="eyebrow">NOW SELECTED</span><h2>{selected.title}</h2><p>{selected.artist}</p></div>
-              <div className="mode-switch" role="group" aria-label="Audio version">
+                <span className="eyebrow">{t('NOW SELECTED')}</span><h2>{selected.title}</h2><p>{selected.artist}</p></div>
+              <div className="mode-switch" role="group" aria-label={t('Audio version')}>
                 {(['original', 'enhanced', 'vocal', 'instrumental'] as AudioMode[]).map((audioMode) => (
                   <button key={audioMode} className={mode === audioMode ? 'active' : ''}
                     data-testid={`mode-${audioMode}`} disabled={!modeAvailability(selected, audioMode).available}
@@ -1007,14 +1375,14 @@ function App() {
                     onClick={() => switchMode(audioMode)}>
                     {audioMode === 'original' ? <Music2 size={15} /> : audioMode === 'enhanced'
                       ? <Sparkles size={15} /> : audioMode === 'vocal' ? <Mic2 size={15} />
-                        : <SlidersHorizontal size={15} />} {modeLabels[audioMode]}
+                        : <SlidersHorizontal size={15} />} {t(modeLabels[audioMode])}
                   </button>
                 ))}
                 {(['original', 'enhanced', 'vocal', 'instrumental'] as AudioMode[]).map((audioMode) => {
                   const availability = modeAvailability(selected, audioMode)
                   return !availability.available ? (
                     <span className="sr-only" id={`mode-${audioMode}-reason`} key={`${audioMode}-reason`}>
-                      {availability.reason}
+                      {t(availability.reason ?? '')}
                     </span>
                   ) : null
                 })}
@@ -1022,10 +1390,10 @@ function App() {
               {selectedEnhancedSummary && (
                 <div className="enhanced-summary" data-testid="enhanced-summary">
                   <Sparkles size={15} aria-hidden="true" />
-                  <div><strong>Enhanced auto-balanced</strong>
-                    <span>{selectedEnhancedSummary.measurements} · {selectedEnhancedSummary.adjustments}</span>
+                  <div><strong>{t('Enhanced auto-balanced')}</strong>
+                    <span>{t(selectedEnhancedSummary.measurements)} · {t(selectedEnhancedSummary.adjustments)}</span>
                     {(selectedEnhancedSummary.cleanup || selectedEnhancedSummary.caveat)
-                      && <small>{selectedEnhancedSummary.cleanup ?? selectedEnhancedSummary.caveat}</small>}
+                      && <small>{t(selectedEnhancedSummary.cleanup ?? selectedEnhancedSummary.caveat ?? '')}</small>}
                   </div>
                 </div>
               )}
@@ -1033,55 +1401,56 @@ function App() {
                 <div className={`ai-card ${selected.processingStage === 'error' ? 'failed' : ''}`}>
                   <div className="ai-card-top"><span className="ai-icon"><WandSparkles size={19} /></span>
                     <div><strong>{needsLanguageRefresh
-                      ? 'Refresh original-language lyrics'
-                      : selected.processingStage === 'idle' ? 'Create karaoke version'
-                        : processingIssues.length ? 'Some components need attention'
-                          : 'Local AI is working'}</strong>
-                      <p>{selected.processingMessage ?? (needsLanguageRefresh
-                        ? 'Reuse the existing vocal stem to detect the original language and correct timed lyrics.'
-                        : 'Create four audio versions and synchronized lyrics.')}</p></div></div>
+                      ? t('Refresh original-language lyrics')
+                      : selected.processingStage === 'idle' ? t('Create karaoke version')
+                        : processingIssues.length ? t('Some components need attention')
+                          : t('Local AI is working')}</strong>
+                      <p>{selected.processingMessage ? t(selected.processingMessage) : (needsLanguageRefresh
+                        ? t('Reuse the existing vocal stem to detect the original language and correct timed lyrics.')
+                        : t('Create four audio versions and synchronized lyrics.'))}</p></div></div>
                   {processingDetails && selected.processingStage !== 'idle' && (
                     <div className="processing-detail" data-testid="processing-detail"
-                      aria-label={`Local AI progress for ${selected.title}`}>
+                      aria-label={t(`Local AI progress for ${selected.title}`)}>
                       <div className="processing-summary" role="status" aria-live="polite">
                         <div>
                           <span>{selected.processingStage === 'queued'
-                            ? 'Waiting to start'
+                            ? t('Waiting to start')
                             : activeProcessingItem?.label
-                              ?? (selected.processingStage === 'error' || selected.processingStage === 'partial'
-                                ? 'Processing needs attention' : 'Finalizing')}</span>
-                          <strong data-testid="processing-action">{selected.processingMessage}</strong>
+                              ? t(activeProcessingItem.label)
+                              : (selected.processingStage === 'error' || selected.processingStage === 'partial'
+                                ? t('Processing needs attention') : t('Finalizing'))}</span>
+                          <strong data-testid="processing-action">{selected.processingMessage ? t(selected.processingMessage) : ''}</strong>
                         </div>
                         {selected.processingStage !== 'queued'
-                          && <b data-testid="processing-overall">{Math.round(selected.processingProgress)}%</b>}
+                          && <b data-testid="processing-overall">{t(`${Math.round(selected.processingProgress)}%`)}</b>}
                       </div>
                       {selected.processingStage !== 'queued' && (
                         <div className="progress-track" role="progressbar"
-                          aria-label="Overall karaoke processing progress" aria-valuemin={0} aria-valuemax={100}
+                          aria-label={t('Overall karaoke processing progress')} aria-valuemin={0} aria-valuemax={100}
                           aria-valuenow={Math.round(selected.processingProgress)}>
                           <span style={{ width: `${Math.max(0, Math.min(100, selected.processingProgress))}%` }} />
                         </div>
                       )}
-                      <div className="processing-checklist" role="list" aria-label="Karaoke deliverables">
+                      <div className="processing-checklist" role="list" aria-label={t('Karaoke deliverables')}>
                         {visibleProcessingGroups.map(({ item, children }) => (
                           <div className={`processing-item ${item.status}`} data-status={item.status}
                             data-testid={`processing-item-${item.id}`} role="listitem" key={item.id}>
                             <span className="processing-state"><ProcessingStatusIcon item={item} /></span>
                             <div className="processing-copy">
-                              <div><strong>{item.label}</strong>
-                                <span>{processingStatusLabels[item.status]}{item.id === 'demucs' && children?.length
-                                  ? ` · ${children.filter((child) => child.status === 'complete').length}/${children.length} stems`
+                              <div><strong>{t(item.label)}</strong>
+                                <span>{t(processingStatusLabels[item.status])}{item.id === 'demucs' && children?.length
+                                  ? t(` · ${children.filter((child) => child.status === 'complete').length}/${children.length} stems`)
                                   : ''}</span></div>
-                              {processingItemDetail(item) && <small>{processingItemDetail(item)}</small>}
+                              {processingItemDetail(item) && <small>{tParts(processingItemDetail(item) ?? '')}</small>}
                               {item.error && item.error !== item.message
-                                && <small className="processing-error">{item.error}</small>}
+                                && <small className="processing-error">{t(item.error)}</small>}
                               {children?.length ? (
-                                <div className="processing-children" aria-label={`${item.label} details`}>
+                                <div className="processing-children" aria-label={`${t(item.label)} ${t('details')}`}>
                                   {children.map((child) => (
                                     <span key={child.id} className={child.status} data-status={child.status}
-                                      title={processingItemDetail(child) || processingStatusLabels[child.status]}>
-                                      <ProcessingStatusIcon item={child} /> {child.label}
-                                      <em>{processingStatusLabels[child.status]}</em>
+                                      title={processingItemDetail(child) ? tParts(processingItemDetail(child) ?? '') : t(processingStatusLabels[child.status])}>
+                                      <ProcessingStatusIcon item={child} /> {t(child.label)}
+                                      <em>{t(processingStatusLabels[child.status])}</em>
                                     </span>
                                   ))}
                                 </div>
@@ -1093,7 +1462,7 @@ function App() {
                     </div>
                   )}
                   {processingIssues.filter((issue) => issue.component !== 'lyrics').length > 0 && (
-                    <div className="deliverable-issues" aria-label="Processing issues">
+                    <div className="deliverable-issues" aria-label={t('Processing issues')}>
                       {processingIssues.filter((issue) => issue.component !== 'lyrics').map((issue) => {
                         const activity = retryActivity(
                           selected,
@@ -1103,13 +1472,13 @@ function App() {
                         return (
                           <div className={`deliverable-issue ${issue.state}`} data-testid={`deliverable-${issue.component}`}
                             key={issue.component}>
-                            <div><strong>{issue.label}</strong><span>{issue.state === 'blocked' ? 'Blocked' : 'Failed'}</span></div>
-                            <p>{issue.reason}</p>
+                            <div><strong>{t(issue.label)}</strong><span>{issue.state === 'blocked' ? t('Blocked') : t('Failed')}</span></div>
+                            <p>{t(issue.reason)}</p>
                             {issue.retryable && (
                               <button data-testid={`retry-${issue.component}`}
                                 disabled={Boolean(activity)}
                                 onClick={() => void retryFailedDeliverable(selected, issue.component)}>
-                                {activity ?? 'Try again'}
+                                {activity ? t(activity) : t('Try again')}
                               </button>
                             )}
                           </div>
@@ -1120,32 +1489,55 @@ function App() {
                   {!processingDetails && selected.processingStage !== 'idle' && selected.processingStage !== 'error'
                     && selected.processingStage !== 'queued'
                     && <div className="progress-track" role="progressbar"
-                      aria-label="Overall karaoke processing progress" aria-valuemin={0} aria-valuemax={100}
+                      aria-label={t('Overall karaoke processing progress')} aria-valuemin={0} aria-valuemax={100}
                       aria-valuenow={Math.round(selected.processingProgress)}>
                       <span style={{ width: `${Math.max(0, Math.min(100, selected.processingProgress))}%` }} />
                     </div>}
                   {(selected.processingStage === 'idle' || needsLanguageRefresh) && (
                   <button className="ai-action" data-testid={needsLanguageRefresh ? 'refresh-lyrics-language' : undefined}
                     onClick={needsLanguageRefresh ? retranscribeSelected : processSelected}
-                    disabled={['queued', 'preparing', 'separating', 'enhancing', 'transcribing'].includes(selected.processingStage)}>
+                    disabled={lyricsAreBusy(selected) || lyricsAreProtected(selected)}
+                    aria-describedby={lyricsAreProtected(selected) ? 'lyrics-protected-note' : undefined}>
                     {['queued', 'preparing', 'separating', 'enhancing', 'transcribing'].includes(selected.processingStage)
                       ? <><LoaderCircle className="spin" size={16} /> {selected.processingStage === 'queued'
-                        ? 'Queued' : `Processing ${selected.processingProgress}%`}</>
+                        ? t('Queued') : t(`Processing ${selected.processingProgress}%`)}</>
                       : <><Sparkles size={16} /> {needsLanguageRefresh
-                        ? selected.processingStage === 'error' ? 'Retry lyrics refresh' : 'Refresh lyrics & language'
-                        : 'Extract with local AI'}</>}
+                        ? selected.processingStage === 'error' ? t('Retry lyrics refresh') : t('Refresh lyrics & language')
+                        : t('Extract with local AI')}</>}
                   </button>
                   )}
                 </div>
               )}
               <div className="lyrics-panel">
-                <div className="panel-title"><div><span className="eyebrow">SYNCED</span><h3>Lyrics</h3></div>
-                  <span data-testid="lyrics-language"><Clock3 size={13} />
-                    {selected.lyricLanguage.languageName} ({selected.lyricLanguage.languageCode}) · {selected.lyrics.length ? 'Timed' : 'Waiting'}
-                  </span></div>
+                <div className="panel-title"><div><span className="eyebrow">{t('SYNCED')}</span><h3>{t('Lyrics')}</h3></div>
+                  <div className="lyrics-panel-actions">
+                    <span data-testid="lyrics-language"><Clock3 size={13} />
+                      {selected.lyricLanguage.languageName} ({selected.lyricLanguage.languageCode}) · {selected.lyrics.length ? t('Timed') : t('Waiting')}
+                      {' · '}{t(lyricsTextSourceLabel(selected.lyricTextSource))}
+                    </span>
+                    <button type="button" className="lyrics-edit-button" data-testid="edit-lyrics" ref={editLyricsButtonRef}
+                      disabled={lyricsAreBusy(selected)} aria-haspopup="dialog"
+                      aria-describedby="edit-lyrics-reason" onClick={openLyricsEditor}>
+                      <Pencil size={12} aria-hidden="true" /> {t('Edit')}
+                    </button>
+                  </div></div>
+                <span id="edit-lyrics-reason" className="sr-only">
+                  {lyricsAreBusy(selected) ? t('Lyrics are busy with local processing.') : t('Edit the saved lyrics for this song')}
+                </span>
+                {lyricsAreProtected(selected) && (
+                  <p className="lyrics-protected" id="lyrics-protected-note" data-testid="lyrics-protected" role="status">
+                    {t('Manual lyrics are protected from AI text replacement.')}
+                  </p>
+                )}
+                {lyricsRematchMessage(selected.lyricRematchStatus, selected.lyricRematchMessage) && (
+                  <p className="lyrics-rematch" data-testid="lyrics-rematch-status" data-status={selected.lyricRematchStatus ?? 'none'}
+                    role={selected.lyricRematchStatus === 'failed' ? 'alert' : 'status'}>
+                    {t(lyricsRematchMessage(selected.lyricRematchStatus, selected.lyricRematchMessage) ?? '')}
+                  </p>
+                )}
                 {lyricsTimingSummary(selected) && (
                   <p className="lyrics-timing-warning" data-testid="lyrics-timing-warning">
-                    {lyricsTimingSummary(selected)}
+                    {t(lyricsTimingSummary(selected) ?? '')}
                   </p>
                 )}
                 <div className="lyrics-scroll">
@@ -1165,38 +1557,39 @@ function App() {
                         )
                       : undefined
                     return <div className={`lyrics-empty ${lyricsIssue ? 'has-issue' : ''}`}><Mic2 size={24} />
-                      <p>{lyricsIssue?.reason ?? 'Timed lyrics will appear here after local AI processing.'}</p>
-                      {lyricsIssue && <strong>{lyricsIssue.state === 'blocked' ? 'Lyrics blocked' : 'Lyrics failed'}</strong>}
-                      {lyricsIssue?.retryable && <button data-testid="retry-lyrics" disabled={Boolean(activity)}
+                      <p>{lyricsIssue ? t(lyricsIssue.reason) : t('Timed lyrics will appear here after local AI processing.')}</p>
+                      {lyricsIssue && <strong>{lyricsIssue.state === 'blocked' ? t('Lyrics blocked') : t('Lyrics failed')}</strong>}
+                      {lyricsIssue?.retryable && <button data-testid="retry-lyrics"
+                        disabled={Boolean(activity) || lyricsAreProtected(selected) || lyricsAreBusy(selected)}
                         onClick={() => void retryFailedDeliverable(selected, lyricsIssue.component)}>
-                        {activity ?? 'Try again'}
+                        {activity ? t(activity) : t('Try again')}
                       </button>}
                     </div>
                   })()}
                 </div>
               </div>
             </>
-          ) : <div className="no-selection"><Music2 size={34} /><p>Select or add a song to begin.</p></div>}
+          ) : <div className="no-selection"><Music2 size={34} /><p>{t('Select or add a song to begin.')}</p></div>}
         </section>
       </main>
 
       <footer className="player">
         <audio ref={audioRef} />
         <div className="player-track"><div className="mini-art"><Music2 size={17} /></div><div>
-          <strong>{selected?.title ?? 'No song selected'}</strong>
-          <span>{selected ? `${modeLabels[mode]} · ${selected.artist}` : 'Add music to begin'}</span></div></div>
+          <strong>{selected?.title ?? t('No song selected')}</strong>
+          <span>{selected ? `${t(modeLabels[mode])} · ${selected.artist}` : t('Add music to begin')}</span></div></div>
         <div className="player-center">
           <button className="skip-button" data-testid="playback-previous" onClick={() => void playPrevious()}
-            disabled={!selected} aria-label="Previous song"><SkipBack size={19} fill="currentColor" /></button>
+            disabled={!selected} aria-label={t('Previous song')}><SkipBack size={19} fill="currentColor" /></button>
           <button className="play-button" data-testid="playback-toggle" onClick={() => playback.toggle()}
-            disabled={!selected} aria-label={isPlaying ? 'Pause' : 'Play'}>
+            disabled={!selected} aria-label={isPlaying ? t('Pause') : t('Play')}>
             {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
           </button>
           <button className="skip-button" data-testid="playback-next" onClick={() => void playNext()}
-            disabled={!selected} aria-label="Next song"><SkipForward size={19} fill="currentColor" /></button>
+            disabled={!selected} aria-label={t('Next song')}><SkipForward size={19} fill="currentColor" /></button>
           <div className="timeline"><span>{formatTime(currentTime)}</span>
             <input type="range" data-testid="playback-seek" min="0" max={duration || 0} step="0.1"
-              value={currentTime} disabled={!selected || duration <= 0} aria-label="Playback position"
+              value={currentTime} disabled={!selected || duration <= 0} aria-label={t('Playback position')}
               onChange={(event) => seekTo(Number(event.target.value))} /><span>{formatTime(duration)}</span></div>
         </div>
         <div className="player-output-controls">
@@ -1222,58 +1615,58 @@ function App() {
             data-output-too-hot={String(microphone.telemetry.outputTooHot ?? false)}
             data-output-clipping={String(microphone.telemetry.outputClipping ?? false)}
             data-output-device={microphone.telemetry.outputDevice}>
-            <button type="button" data-testid="mic-monitor-toggle" aria-label={microphoneLabel}
-              title={`${microphone.error ?? microphoneLabel}. Wired headphones recommended. Monitor gain is independent of song volume and uses the system default output.`}
+            <button type="button" data-testid="mic-monitor-toggle" aria-label={t(microphoneLabel)}
+              title={`${microphone.error ? t(microphone.error) : t(microphoneLabel)}. ${t('Wired headphones recommended. Monitor gain is independent of song volume and uses the system default output.')}`}
               aria-pressed={microphone.state === 'on'} onClick={toggleMicrophoneMonitor}>
               {microphone.state === 'requesting'
                 ? <LoaderCircle className="spin" size={17} />
                 : <Mic2 size={17} />}
             </button>
             <span role={microphone.state === 'error' ? 'alert' : 'status'}>
-              {microphone.state === 'off' && 'Mic off'}
-              {microphone.state === 'requesting' && 'Requesting mic…'}
-              {microphone.state === 'on' && <>{microphoneStatus}
-                <span className="mic-meter" aria-label={`Microphone level ${Math.round(microphoneLevel * 100)} percent`}>
+              {microphone.state === 'off' && t('Mic off')}
+              {microphone.state === 'requesting' && t('Requesting mic…')}
+              {microphone.state === 'on' && <>{t(microphoneStatus)}
+                <span className="mic-meter" aria-label={t(`Microphone level ${Math.round(microphoneLevel * 100)} percent`)}>
                   <span style={{ transform: `scaleX(${microphoneLevel})` }} />
                 </span>
                 <small data-testid="mic-monitor-input">
-                  Input {microphone.telemetry.signalDetected ? 'detected' : 'waiting'}
+                  {microphone.telemetry.signalDetected ? t('Input detected') : t('Input waiting')}
                 </small>
                 <span className={`mic-meter output ${microphone.telemetry.outputTooHot ? 'hot' : ''}`}
-                  aria-label={`Monitor output level ${Math.round(monitorOutputLevel * 100)} percent`}>
+                  aria-label={t(`Monitor output level ${Math.round(monitorOutputLevel * 100)} percent`)}>
                   <span style={{ transform: `scaleX(${monitorOutputLevel})` }} />
                 </span>
                 <small data-testid="mic-monitor-output">
-                  Monitor out {monitorOutputDb}
+                  {t(`Monitor out ${monitorOutputDb}`)}
                 </small>
                 {monitorLatencyMs !== undefined && <small data-testid="mic-monitor-latency">
-                  {monitorLatencyMs} ms output estimate
+                  {t(`${monitorLatencyMs} ms output estimate`)}
                 </small>}
-                <small data-testid="mic-monitor-device">Default output · check Windows if silent</small>
+                <small data-testid="mic-monitor-device">{t('Default output · check Windows if silent')}</small>
                 {microphone.telemetry.outputClipping && <small className="mic-warning" role="alert"
-                  data-testid="mic-monitor-clipping">Clipping — lower Mic monitor level</small>}
+                  data-testid="mic-monitor-clipping">{t('Clipping — lower Mic monitor level')}</small>}
                 {!microphone.telemetry.outputClipping && microphone.telemetry.outputTooHot
                   && <small className="mic-warning" role="alert" data-testid="mic-monitor-too-hot">
-                    Output too hot — lower level
+                    {t('Output too hot — lower level')}
                   </small>}
                 {noMicrophoneInput && <small data-testid="mic-monitor-no-input">
-                  Check mic mute/input device
+                  {t('Check mic mute/input device')}
                 </small>}</>}
-              {microphone.state === 'error' && microphoneErrorLabel}
+              {microphone.state === 'error' && t(microphoneErrorLabel)}
             </span>
             <label className="mic-level" htmlFor="mic-monitor-level">
-              <span>Mic monitor level <output>{monitorGainLabel}</output></span>
+              <span>{t('Mic monitor level')} <output>{t(monitorGainLabel)}</output></span>
               <input id="mic-monitor-level" type="range" min={MIN_MONITOR_GAIN} max={MAX_MONITOR_GAIN}
                 step={MONITOR_GAIN_STEP} value={microphone.gain} data-testid="mic-monitor-level"
-                aria-label={`Mic monitor level ${monitorGainLabel}`}
+                aria-label={t(`Mic monitor level ${monitorGainLabel}`)}
                 onChange={(event) => microphone.setGain(Number(event.target.value))} />
               <small>{microphone.gain > 2
-                ? 'High boost: use wired headphones; lower it if feedback or clipping starts.'
-                : 'Independent of song volume.'}</small>
+                ? t('High boost: use wired headphones; lower it if feedback or clipping starts.')
+                : t('Independent of song volume.')}</small>
             </label>
           </div>
           <div className="volume"><Volume2 size={17} /><input type="range" min="0" max="1" step="0.01"
-            data-testid="player-volume" value={volume} aria-label="Volume"
+            data-testid="player-volume" value={volume} aria-label={t('Volume')}
             onChange={(event) => setVolume(Number(event.target.value))} /></div>
         </div>
       </footer>
@@ -1281,15 +1674,15 @@ function App() {
       {menuSongId && menuPosition && createPortal((
         <div className="playlist-menu" role="menu" ref={menuRef}
           style={menuPosition} onClick={(event) => event.stopPropagation()} onKeyDown={menuKeyDown}>
-          <span>Add to playlist</span>
+          <span>{t('Add to playlist')}</span>
           {playlists.playlists.filter((playlist) => playlist.kind !== 'history').map((playlist) => (
             <button role="menuitem" key={playlist.id} data-testid={`add-to-playlist-${playlist.id}`}
-              onClick={() => void addToPlaylist(menuSongId, playlist)}>{playlist.name}</button>
+              onClick={() => void addToPlaylist(menuSongId, playlist)}>{playlistDisplayName(settings.uiLocale, playlist)}</button>
           ))}
           <button role="menuitem" data-testid="new-playlist" onClick={() => {
             setCreateForSongId(menuSongId)
             setShowCreatePlaylist(true)
-          }}><Plus size={14} /> New playlist…</button>
+          }}><Plus size={14} /> {t('New playlist…')}</button>
         </div>
       ), document.body)}
 
@@ -1299,12 +1692,12 @@ function App() {
         }}>
           <form className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-dialog-title"
             onSubmit={(event) => void createPlaylist(event)}>
-            <div><h2 id="playlist-dialog-title">New playlist</h2>
-              <button type="button" aria-label="Close" onClick={() => setShowCreatePlaylist(false)}><X size={18} /></button></div>
-            <label>Playlist name<input autoFocus data-testid="playlist-name" value={playlistName}
+            <div><h2 id="playlist-dialog-title">{t('New playlist')}</h2>
+              <button type="button" aria-label={t('Close')} onClick={() => setShowCreatePlaylist(false)}><X size={18} /></button></div>
+            <label>{t('Playlist name')}<input autoFocus data-testid="playlist-name" value={playlistName}
               onChange={(event) => setPlaylistName(event.target.value)} maxLength={80} /></label>
             <button className="primary-button" data-testid="playlist-create-confirm" type="submit"
-              disabled={!playlistName.trim()}>Create playlist</button>
+              disabled={!playlistName.trim()}>{t('Create playlist')}</button>
           </form>
         </div>
       )}
@@ -1312,17 +1705,17 @@ function App() {
         <div className="dialog-backdrop" role="presentation">
           <div className="playlist-dialog" role="alertdialog" aria-modal="true"
             aria-labelledby="playlist-clear-title">
-            <div><h2 id="playlist-clear-title">Clear {selectedPlaylist.name}?</h2>
-              <button aria-label="Cancel clearing playlist" onClick={() => setConfirmClear(false)}>
+            <div><h2 id="playlist-clear-title">{t(`Clear ${playlistDisplayName(settings.uiLocale, selectedPlaylist)}?`)}</h2>
+              <button aria-label={t('Cancel clearing playlist')} onClick={() => setConfirmClear(false)}>
                 <X size={18} />
               </button></div>
-            <p>Every entry will be removed. Your library songs will stay on this PC.</p>
+            <p>{t('Every entry will be removed. Your library songs will stay on this PC.')}</p>
             <div className="dialog-actions">
-              <button onClick={() => setConfirmClear(false)}>Cancel</button>
+              <button onClick={() => setConfirmClear(false)}>{t('Cancel')}</button>
               <button className="danger-button" data-testid="playlist-clear-confirm" onClick={() => {
                 setConfirmClear(false)
                 void clearCurrentPlaylist()
-              }}>Clear playlist</button>
+              }}>{t('Clear playlist')}</button>
             </div>
           </div>
         </div>
@@ -1331,12 +1724,12 @@ function App() {
         <div className="dialog-backdrop" role="presentation">
           <form className="playlist-dialog" role="dialog" aria-modal="true"
             aria-labelledby="playlist-rename-title" onSubmit={(event) => void renameCurrentPlaylist(event)}>
-            <div><h2 id="playlist-rename-title">Rename playlist</h2>
-              <button type="button" aria-label="Cancel renaming playlist"
+            <div><h2 id="playlist-rename-title">{t('Rename playlist')}</h2>
+              <button type="button" aria-label={t('Cancel renaming playlist')}
                 onClick={() => setShowRenamePlaylist(false)}><X size={18} /></button></div>
-            <label>Playlist name<input autoFocus value={renameName}
+            <label>{t('Playlist name')}<input autoFocus value={renameName}
               onChange={(event) => setRenameName(event.target.value)} maxLength={80} /></label>
-            <button className="primary-button" type="submit" disabled={!renameName.trim()}>Save name</button>
+            <button className="primary-button" type="submit" disabled={!renameName.trim()}>{t('Save name')}</button>
           </form>
         </div>
       )}
@@ -1344,22 +1737,114 @@ function App() {
         <div className="dialog-backdrop" role="presentation">
           <div className="playlist-dialog" role="alertdialog" aria-modal="true"
             aria-labelledby="playlist-delete-title">
-            <div><h2 id="playlist-delete-title">Delete {selectedPlaylist.name}?</h2>
-              <button aria-label="Cancel deleting playlist" onClick={() => setConfirmDelete(false)}>
+            <div><h2 id="playlist-delete-title">{t(`Delete ${selectedPlaylist.name}?`)}</h2>
+              <button aria-label={t('Cancel deleting playlist')} onClick={() => setConfirmDelete(false)}>
                 <X size={18} />
               </button></div>
-            <p>The playlist will be deleted. Its songs will remain in your library.</p>
+            <p>{t('The playlist will be deleted. Its songs will remain in your library.')}</p>
             <div className="dialog-actions">
-              <button onClick={() => setConfirmDelete(false)}>Cancel</button>
-              <button className="danger-button" onClick={() => void deleteCurrentPlaylist()}>Delete playlist</button>
+              <button onClick={() => setConfirmDelete(false)}>{t('Cancel')}</button>
+              <button className="danger-button" onClick={() => void deleteCurrentPlaylist()}>{t('Delete playlist')}</button>
             </div>
           </div>
         </div>
       )}
+      {lyricsEditor && (
+        <div className="dialog-backdrop lyrics-editor-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) requestCloseLyricsEditor()
+        }}>
+          <div className="playlist-dialog lyrics-editor" role="dialog" aria-modal="true" aria-labelledby="lyrics-editor-title"
+            aria-describedby="lyrics-editor-status" data-testid="lyrics-editor" data-song-id={lyricsEditor.songId}
+            ref={lyricsEditorDialogRef}>
+            <div><h2 id="lyrics-editor-title">{t('Edit lyrics')}</h2>
+              <button type="button" aria-label={t('Cancel lyrics edit')} onClick={requestCloseLyricsEditor}>
+                <X size={18} /></button></div>
+            <p>{lyricsEditor.songTitle}</p>
+            {lyricsEditor.discardPrompt ? (
+              <>
+                <p className="lyrics-editor-status" id="lyrics-editor-status" data-testid="lyrics-editor-status" role="alert" data-state="conflict">
+                  {t(lyricsEditorStatusMessage({
+                    draft: lyricsEditor,
+                    busy: false,
+                  }))}
+                </p>
+                <div className="dialog-actions">
+                  <button type="button" onClick={() => {
+                    const songId = lyricsEditor.songId
+                    setLyricsEditor((current) => reduceLyricsEditor(current, { type: 'keep-editing' }))
+                    if (songId !== selectedId) selectLibrarySong(songId)
+                  }}>
+                    {t('Keep editing')}
+                  </button>
+                  <button type="button" className="danger-button" data-testid="lyrics-editor-discard"
+                    onClick={() => setLyricsEditor((current) => reduceLyricsEditor(current, { type: 'confirm-discard' }))}>
+                    {t('Discard')}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label>{t('Lyrics')}
+                  <textarea data-testid="lyrics-editor-text" value={lyricsEditor.text.replace(/\r\n?/g, '\n')} spellCheck={false}
+                    disabled={lyricsEditor.saving} aria-label={t('Lyrics')}
+                    onChange={(event) => {
+                      const text = event.target.value
+                      const paste = lyricsPasteRef.current
+                      lyricsPasteRef.current = null
+                      setLyricsEditor((current) => reduceLyricsEditor(current, {
+                        type: 'edit',
+                        text: paste && paste.songId === current?.songId && paste.previousText === current.text
+                          && paste.expectedInput === text ? paste.text : editorTextFromInput(current?.text ?? '', text),
+                      }))
+                    }}
+                    onPaste={(event) => {
+                      const element = event.currentTarget
+                      const { selectionStart, selectionEnd } = element
+                      const inserted = event.clipboardData.getData('text/plain')
+                      const text = replaceEditorSelection(lyricsEditor.text, selectionStart, selectionEnd, inserted)
+                      lyricsPasteRef.current = {
+                        songId: lyricsEditor.songId,
+                        previousText: lyricsEditor.text,
+                        text,
+                        expectedInput: text.replace(/\r\n?/g, '\n'),
+                      }
+                    }} />
+                </label>
+                <p className="lyrics-editor-status" id="lyrics-editor-status" data-testid="lyrics-editor-status" data-state={
+                  lyricsEditor.conflict || lyricsEditor.saveState === 'failed' || editorRematchFailed ? 'failed' : lyricsEditor.saveState
+                } role={lyricsEditor.conflict || lyricsEditor.saveState === 'failed' || editorRematchFailed ? 'alert' : 'status'}>
+                  {t(lyricsEditorStatusMessage({
+                    draft: lyricsEditor,
+                    songId: editorSong?.id,
+                    songRevision: editorSong?.lyricsRevision,
+                    songRematchStatus: editorSong?.lyricRematchStatus,
+                    songRematchMessage: editorSong?.lyricRematchMessage,
+                    busy: lyricsAreBusy(editorSong),
+                  }))}
+                </p>
+                <div className="dialog-actions">
+                  {lyricsEditor.conflict && (
+                    <button type="button" data-testid="lyrics-editor-reload" onClick={reloadSavedLyrics}>
+                      {t('Load saved lyrics')}
+                    </button>
+                  )}
+                  <button type="button" onClick={requestCloseLyricsEditor}>{t('Cancel')}</button>
+                  <button type="button" className="primary-button" data-testid="lyrics-editor-update"
+                    disabled={lyricsEditor.saving || !hasUsableLyricLines(lyricsEditor.text)
+                      || lyricsAreBusy(songs.find((song) => song.id === lyricsEditor.songId))}
+                    onClick={() => void submitLyricsUpdate()}>
+                    {lyricsEditor.saving ? t('Saving…') : t('Update')}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {notice && <button className="notice-toast" role="status" onClick={() => setNotice(undefined)}
-        aria-label={`${notice} Dismiss`}>{notice}</button>}
+        aria-label={`${noticeText} ${t('Dismiss')}`}>{noticeText}</button>}
       {error && <button className="error-toast" role="alert" onClick={() => setError(undefined)}
-        aria-label={`${error}. Dismiss`}>{error}</button>}
+        aria-label={`${errorText}. ${t('Dismiss')}`}>{errorText}</button>}
     </div>
   )
 }

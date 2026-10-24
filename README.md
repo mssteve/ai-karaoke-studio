@@ -16,9 +16,28 @@ appear more than once because each queue entry has its own identity. Playlist or
 the selected playlist, and its current cursor survive restart; playback itself always
 restores paused at 0:00.
 
+Single-click a playlist entry to select it without playing. Double-click an entry
+to select it and start playback. This also applies to Queue and History.
+
 Runtime diagnostics are stored locally under the app data `logs` directory. The title bar's **Diagnostics** button opens that folder. No diagnostic server or browser interface is exposed.
 
 For local development and support, the running app exposes a Windows named pipe—not a network port—at `\\.\pipe\karaoke-studio-control`. Use `npm run control -- status`, `screenshot`, `add <path>`, `process <song-id>`, `remove <song-id>`, or `control <play|pause|toggle|select|mode|seek> [value]`.
+
+## Lyrics and language
+
+For a processed song, **Edit** loads that song's current saved lyrics. Enter or paste
+plain text or LRC, then choose **Update**. Multiline updates preserve your wording,
+blank lines, CRLF line breaks, and LRC timestamp text. Reopening the editor restores
+the exact saved text, even after a restart. Playback still uses only timed lyric lines;
+updates use existing line timing as a reference. When a vocal stem is available,
+the app automatically runs fresh recognition and rematches timing to your edited text;
+this is not forced alignment. If vocals are unavailable or rematching fails, the saved
+text and existing timing are retained. **Refresh lyrics & language** cannot overwrite
+protected manual edits.
+
+Choose English or French for the interface independently of automatic detection or a
+manually selected recognition language. Both preferences persist across restarts;
+changing the interface language does not select the language used for recognition.
 
 ## Development
 
@@ -30,6 +49,13 @@ npm start
 `npm start` rebuilds the current renderer and Electron sources, verifies the required
 local runtime entries, and then launches Electron. Use `npm run dev` only for the
 renderer and Electron compiler watch processes.
+
+### Local AI providers
+
+`electron/ai-providers.ts` defines the typed registry and default-provider boundary for
+future local engine replacement. The defaults remain Demucs ONNX for separation and
+Whisper small timestamped (`onnx-community/whisper-small_timestamped`) for recognition.
+This boundary does not introduce cloud engines or additional user-selectable engines.
 
 ## Windows installer
 

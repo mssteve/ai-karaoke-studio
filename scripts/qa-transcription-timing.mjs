@@ -176,4 +176,62 @@ equal(normalizeWhisperChunks([
   { text: 'kept.', timestamp: [1, 2] },
 ], 5).length, 1, 'empty fragments must be discarded safely')
 
+const { alignUserLinesToAsrWords, lyricLineWeight, lyricTokens } = await import('../dist-electron/transcription-timing.js')
+equal(lyricLineWeight('你好'), 2, 'CJK characters count as separate word weights')
+equal(lyricLineWeight('hello world'), 2, 'whitespace-separated words count individually')
+const aligned = alignUserLinesToAsrWords([
+  { text: 'alpha bravo', start: 0, end: 4 },
+  { text: '保持原文', start: 4, end: 8 },
+], [
+  { text: 'alpha', start: 1.2, end: 1.5 },
+  { text: 'bravo', start: 1.5, end: 2.1 },
+  { text: 'other', start: 3, end: 3.4 },
+], 10)
+equal(aligned.lines, [
+  { text: 'alpha bravo', start: 1.2, end: 2.1 },
+  { text: '保持原文', start: 4, end: 8 },
+], 'text-to-ASR-word rematch keeps unmatched lines and does not group matched text')
+equal(aligned.matchedLineCount, 1, 'only lines with an ordered token match receive ASR timing')
+check(aligned.message.includes('cannot force-align'),
+  'word rematch must not claim forced alignment')
+const missingWords = alignUserLinesToAsrWords([
+  { text: 'kept', start: 1, end: 2 },
+], [], 5)
+equal(missingWords.lines, [{ text: 'kept', start: 1, end: 2 }],
+  'missing ASR words retain valid timing')
+equal(missingWords.matchedLineCount, 0, 'missing ASR words are not invented matches')
+
+for (const [text, tokens] of [
+  ['Привет, мир!', ['привет', 'мир']],
+  ['مَرْحَبًا بالعالم', ['مَرْحَبًا', 'بالعالم']],
+  ['नमस्ते दुनिया', ['नमस्ते', 'दुनिया']],
+  ['γειά σου', ['γειά', 'σου']],
+  ['שלום עולם', ['שלום', 'עולם']],
+  ['café déjà', ['café', 'déjà']],
+  ['你好 世界', ['你', '好', '世', '界']],
+  ['こんにちは', ['こ', 'ん', 'に', 'ち', 'は']],
+  ['안녕하세요', ['안', '녕', '하', '세', '요']],
+]) {
+  equal(lyricTokens(text), tokens, `Unicode tokenization keeps letters, marks, and Asian segmentation: ${text}`)
+  const matched = alignUserLinesToAsrWords([{ text, start: 0, end: 10 }],
+    [{ text, start: 3, end: 5 }], 10)
+  equal(matched.lines, [{ text, start: 3, end: 5 }], `exact script match takes fresh timing: ${text}`)
+  equal(matched.matchedLineCount, 1, `exact script match is counted: ${text}`)
+}
+equal(lyricTokens('Hello你好１２٣'), ['hello', '你', '好', '12٣'],
+  'mixed scripts retain Asian character boundaries and Unicode numbers')
+equal(lyricTokens('L’été'), lyricTokens("l'été"), 'typographic apostrophes match canonical apostrophes')
+equal(lyricTokens('cafe\u0301'), lyricTokens('café'), 'decomposed and composed accents match')
+const orderedUnicode = alignUserLinesToAsrWords([
+  { text: 'Привет мир!', start: 0, end: 10 },
+  { text: 'Привет мир?', start: 10, end: 20 },
+], [
+  { text: 'Привет', start: 3, end: 4 }, { text: 'мир', start: 4, end: 5 },
+  { text: 'Привет', start: 13, end: 14 }, { text: 'мир', start: 14, end: 15 },
+], 20)
+equal(orderedUnicode.lines, [
+  { text: 'Привет мир!', start: 3, end: 5 },
+  { text: 'Привет мир?', start: 13, end: 15 },
+], 'ordered matching disambiguates repeated Unicode lyrics while retaining punctuation')
+
 console.log(`PASS transcription timing: ${checks} deterministic checks.`)

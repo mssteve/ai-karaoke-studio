@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { DesktopControl, KaraokeApi, PlaybackAutomationStatus, ProcessUpdate } from './types.js'
+import type {
+  DesktopControl,
+  KaraokeApi,
+  PlaybackAutomationStatus,
+  ProcessUpdate,
+} from './types.js'
 
 const api: KaraokeApi = {
   getLibrary: () => ipcRenderer.invoke('library:get'),
@@ -7,6 +12,9 @@ const api: KaraokeApi = {
   removeSong: (id) => ipcRenderer.invoke('library:remove', id),
   processSong: (id) => ipcRenderer.invoke('ai:process', id),
   retranscribeSong: (id) => ipcRenderer.invoke('ai:retranscribe', id),
+  updateLyrics: (request) => ipcRenderer.invoke('lyrics:update', request),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  updateSettings: (request) => ipcRenderer.invoke('settings:set', request),
   retryDeliverable: (request) => ipcRenderer.invoke('ai:retry-deliverable', request),
   getPlaylists: () => ipcRenderer.invoke('playlists:get'),
   createPlaylist: (request) => ipcRenderer.invoke('playlists:create', request),

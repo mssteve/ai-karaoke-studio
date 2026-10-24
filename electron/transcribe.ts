@@ -1,7 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { TranscriptionResult } from './types.js'
 import { onnxSessionOptions } from './processing-resources.js'
 import {
+  normalizeTimedFragmentsWithDiagnostics,
   normalizeWhisperChunksWithDiagnostics,
   type TimedTextFragment,
 } from './transcription-timing.js'
@@ -78,6 +81,30 @@ function readMonoPcm16Wav(buffer: Buffer) {
   return audio
 }
 
+export function resolveRecognitionLanguage(
+  argument: string | undefined,
+  langToId: Record<string, number>,
+) {
+  if (argument === undefined || argument === '' || argument === 'auto') {
+    return { mode: 'auto' as const, languageSource: 'detected' as const }
+  }
+  const match = /^manual:([A-Za-z]{2,3})$/.exec(argument.trim())
+  if (!match) throw new Error('Unsupported recognition language.')
+  const languageCode = match[1].toLowerCase()
+  if (!Object.prototype.hasOwnProperty.call(langToId, `<|${languageCode}|>`)) {
+    throw new Error('Unsupported recognition language.')
+  }
+  return { mode: 'manual' as const, languageCode, languageSource: 'user' as const }
+}
+
+function languageDisplayName(languageCode: string) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(languageCode) ?? languageCode
+  } catch {
+    return languageCode
+  }
+}
+
 async function detectLanguage(
   transcriber: WhisperTranscriber,
   audio: Float32Array,
@@ -109,17 +136,11 @@ async function detectLanguage(
   const languageCode = detected?.[0].slice(2, -2) ?? ''
   if (!languageCode) throw new Error('Whisper could not detect the source language.')
 
-  let language = languageCode
-  try {
-    language = new Intl.DisplayNames(['en'], { type: 'language' }).of(languageCode) ?? languageCode
-  } catch {
-    // Keep the stable Whisper language code when the runtime has no display-name data.
-  }
-  return { language, languageCode }
+  return { language: languageDisplayName(languageCode), languageCode }
 }
 
 async function main() {
-  const [audioPath, cacheDir, outputPath, rawThreads] = process.argv.slice(2)
+  const [audioPath, cacheDir, outputPath, rawThreads, recognitionArgument] = process.argv.slice(2)
   if (!audioPath || !cacheDir || !outputPath) {
     throw new Error('Missing transcription arguments.')
   }
@@ -157,28 +178,41 @@ async function main() {
   report({ phase: 'model', status: 'ready', progress: 100 })
   const audio = readMonoPcm16Wav(await readFile(audioPath))
   try {
-    const { language, languageCode } = await detectLanguage(transcriber, audio, Tensor)
+    const recognition = resolveRecognitionLanguage(
+      recognitionArgument,
+      transcriber.model.generation_config.lang_to_id,
+    )
+    const detected = recognition.mode === 'manual'
+      ? {
+          language: languageDisplayName(recognition.languageCode),
+          languageCode: recognition.languageCode,
+        }
+      : await detectLanguage(transcriber, audio, Tensor)
     report({ phase: 'transcription', status: 'running', duration: audio.length / 16000 })
     const result = await transcriber(audio, {
       return_timestamps: 'word',
       chunk_length_s: 30,
       stride_length_s: 5,
-      language: languageCode,
+      language: detected.languageCode,
       task: 'transcribe',
     })
     report({ phase: 'transcription', status: 'complete', chunks: result.chunks?.length ?? 0 })
 
-    const normalizedTiming = normalizeWhisperChunksWithDiagnostics(
-      result.chunks ?? [],
-      audio.length / 16000,
-    )
+    const duration = audio.length / 16000
+    const wordTiming = normalizeTimedFragmentsWithDiagnostics(result.chunks ?? [], duration)
+    const normalizedTiming = normalizeWhisperChunksWithDiagnostics(result.chunks ?? [], duration)
     const transcript: TranscriptionResult = {
       text: result.text.trim(),
-      language,
-      languageCode,
-      languageName: language,
-      languageSource: 'detected',
+      language: detected.language,
+      languageCode: detected.languageCode,
+      languageName: detected.language,
+      languageSource: recognition.languageSource,
       lines: normalizedTiming.lines,
+      words: wordTiming.fragments.map((fragment) => ({
+        text: fragment.text,
+        start: fragment.start,
+        end: fragment.end,
+      })),
       timingDiagnostics: normalizedTiming.diagnostics,
     }
     await writeFile(outputPath, JSON.stringify(transcript, null, 2), 'utf8')
@@ -193,7 +227,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error))
-  process.exit(1)
-})
+const executedDirectly = process.argv[1]
+  ? path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  : false
+
+if (executedDirectly) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error))
+    process.exit(1)
+  })
+}

@@ -349,3 +349,155 @@ export function validateLyricLines(lines: readonly LyricLine[], mediaDuration?: 
     previousEnd = line.end
   }
 }
+
+const LYRIC_TOKEN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]\p{M}*|(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{N}\p{M}])+(?:['’](?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{N}\p{M}])+)*/gu
+
+export interface AsrTimedWord {
+  text: string
+  start: number
+  end: number
+}
+
+export interface TextRematchAlignment {
+  lines: LyricLine[]
+  matchedLineCount: number
+  retainedLineCount: number
+  message: string
+}
+
+export function lyricTokens(text: string) {
+  return [...text.normalize('NFKC').matchAll(LYRIC_TOKEN)].map((match) => match[0].toLowerCase().replace(/’/g, "'"))
+}
+
+export function lyricLineWeight(text: string) {
+  return Math.max(1, lyricTokens(text).length)
+}
+
+function roundSeconds(value: number) {
+  return Math.round(value * 1000) / 1000
+}
+
+export function alignUserLinesToAsrWords(
+  lines: readonly LyricLine[],
+  words: readonly AsrTimedWord[],
+  mediaDuration?: number,
+): TextRematchAlignment {
+  const retained = lines.map((line) => ({ text: line.text, start: line.start, end: line.end }))
+  const honest = 'Whisper cannot force-align provided text.'
+  if (!lines.length) {
+    return {
+      lines: [],
+      matchedLineCount: 0,
+      retainedLineCount: 0,
+      message: `Text-to-Whisper-word rematch aligned 0 of 0 lines. Unmatched lines kept their previous timing. ${honest}`,
+    }
+  }
+  const userTokens = lines.flatMap((line, lineIndex) => lyricTokens(line.text).map((token) => ({
+    token,
+    lineIndex,
+  })))
+  const asrTokens = words.flatMap((word, wordIndex) => lyricTokens(word.text).map((token) => ({
+    token,
+    wordIndex,
+  })))
+  const matchedWordsByLine = new Map<number, number[]>()
+  if (userTokens.length && asrTokens.length) {
+    const scores = Array.from({ length: userTokens.length + 1 }, () => new Int32Array(asrTokens.length + 1))
+    const choice = Array.from({ length: userTokens.length + 1 }, () => new Int8Array(asrTokens.length + 1))
+    for (let userIndex = 1; userIndex <= userTokens.length; userIndex += 1) {
+      for (let asrIndex = 1; asrIndex <= asrTokens.length; asrIndex += 1) {
+        let best = scores[userIndex - 1][asrIndex]
+        let from = 1
+        if (scores[userIndex][asrIndex - 1] > best) {
+          best = scores[userIndex][asrIndex - 1]
+          from = 2
+        }
+        if (userTokens[userIndex - 1].token === asrTokens[asrIndex - 1].token
+          && scores[userIndex - 1][asrIndex - 1] + 2 >= best) {
+          best = scores[userIndex - 1][asrIndex - 1] + 2
+          from = 3
+        }
+        scores[userIndex][asrIndex] = best
+        choice[userIndex][asrIndex] = from
+      }
+    }
+    const matchedTokensByLine = new Map<number, number>()
+    let userIndex = userTokens.length
+    let asrIndex = asrTokens.length
+    while (userIndex > 0 && asrIndex > 0) {
+      const from = choice[userIndex][asrIndex]
+      if (from === 3) {
+        const lineIndex = userTokens[userIndex - 1].lineIndex
+        const wordIndex = asrTokens[asrIndex - 1].wordIndex
+        const current = matchedWordsByLine.get(lineIndex) ?? []
+        if (!current.includes(wordIndex)) current.push(wordIndex)
+        matchedWordsByLine.set(lineIndex, current)
+        matchedTokensByLine.set(lineIndex, (matchedTokensByLine.get(lineIndex) ?? 0) + 1)
+        userIndex -= 1
+        asrIndex -= 1
+      } else if (from === 1) userIndex -= 1
+      else asrIndex -= 1
+    }
+    for (const [lineIndex, matchedTokens] of matchedTokensByLine) {
+      const tokenCount = userTokens.filter((token) => token.lineIndex === lineIndex).length
+      if (matchedTokens * 2 < tokenCount) matchedWordsByLine.delete(lineIndex)
+    }
+  }
+
+  const candidate = retained.map((line) => ({ ...line }))
+  const accepted = new Set<number>()
+  let previousEnd = 0
+  for (let index = 0; index < lines.length; index += 1) {
+    const wordIndexes = matchedWordsByLine.get(index)
+    if (!wordIndexes?.length) continue
+    const matched = wordIndexes.map((wordIndex) => words[wordIndex])
+      .filter((word) => Number.isFinite(word?.start) && Number.isFinite(word?.end) && word.end > word.start)
+    if (!matched.length) continue
+    let start = Math.min(...matched.map((word) => word.start))
+    let end = Math.max(...matched.map((word) => word.end))
+    if (start < previousEnd - FLOAT_TOLERANCE_SECONDS) start = previousEnd
+    const nextMatchedStart = lines.slice(index + 1).reduce<number | undefined>((found, _line, offset) => {
+      if (found !== undefined) return found
+      const nextIndexes = matchedWordsByLine.get(index + 1 + offset)
+      if (!nextIndexes?.length) return undefined
+      return Math.min(...nextIndexes.map((wordIndex) => words[wordIndex].start))
+    }, undefined)
+    const limit = Math.min(
+      mediaDuration ?? Number.POSITIVE_INFINITY,
+      nextMatchedStart ?? Number.POSITIVE_INFINITY,
+    )
+    if (end - start + FLOAT_TOLERANCE_SECONDS < MINIMUM_FRAGMENT_DURATION_SECONDS) {
+      if (start + MINIMUM_FRAGMENT_DURATION_SECONDS <= limit + FLOAT_TOLERANCE_SECONDS) {
+        end = start + MINIMUM_FRAGMENT_DURATION_SECONDS
+      } else {
+        continue
+      }
+    }
+    if (end > limit + FLOAT_TOLERANCE_SECONDS) end = limit
+    if (end - start + FLOAT_TOLERANCE_SECONDS < MINIMUM_FRAGMENT_DURATION_SECONDS
+      || start + FLOAT_TOLERANCE_SECONDS < previousEnd
+      || (mediaDuration !== undefined && end > mediaDuration + FLOAT_TOLERANCE_SECONDS)) {
+      continue
+    }
+    candidate[index] = { text: lines[index].text, start: roundSeconds(start), end: roundSeconds(end) }
+    accepted.add(index)
+    previousEnd = candidate[index].end
+  }
+
+  let output = candidate
+  try {
+    validateLyricLines(output, mediaDuration)
+  } catch {
+    output = retained
+    accepted.clear()
+  }
+  const matchedLineCount = accepted.size
+  const retainedLineCount = lines.length - matchedLineCount
+  return {
+    lines: output.map((line) => ({ text: line.text, start: line.start, end: line.end })),
+    matchedLineCount,
+    retainedLineCount,
+    message: `Text-to-Whisper-word rematch aligned ${matchedLineCount} of ${lines.length} lines. `
+      + `Unmatched lines kept their previous timing. ${honest}`,
+  }
+}

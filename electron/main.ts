@@ -47,14 +47,38 @@ import {
   validateLyricLines,
 } from './transcription-timing.js'
 import {
+  configureLocalAiProcessRunner,
+  dispatchSeparation,
+  dispatchTranscription,
+} from './ai-providers.js'
+import {
+  formatRecognitionArgument,
+  readOrCreateAppSettings,
+  updateAppSettingsFile,
+} from './app-settings.js'
+import {
+  commitTimingRematch,
+  lyricsDocumentFromSong,
+  normalizeLyricOwnership,
+  parseLyricsDocument,
+  protectUserLyrics,
+  reapplyLyricsDocument,
+  replaceTextFile,
+  shouldResumePendingRematch,
+  stampEngineTranscript,
+  updateSavedLyrics,
+} from './lyric-update.js'
+import {
   shouldAllowMediaPermissionCheck,
   shouldAllowMediaPermissionRequest,
 } from './media-permissions.js'
 import type {
+  AppSettings,
   ArtifactFingerprint,
   ComponentFailure,
   DeliverableId,
   DeliverableState,
+  LyricsDocument,
   ProcessingDiagnostics,
   ProcessingComponentId,
   PlaybackAutomationStatus,
@@ -66,6 +90,8 @@ import type {
   RetryDeliverableRequest,
   Song,
   TranscriptionResult,
+  UpdateAppSettingsRequest,
+  UpdateLyricsRequest,
 } from './types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -99,7 +125,13 @@ const processingScheduler = new ProcessingScheduler(1)
 const processingResources = createProcessingResourcePolicy()
 const pendingProcessingTargets = new PendingProcessingPlans<DeliverableId>()
 const songProcessingPromises = new Map<string, Promise<Song>>()
+type SongJobKind = 'pipeline' | 'rematch' | 'library-save'
+const songProcessingKinds = new Map<string, SongJobKind>()
+const lyricEditLocks = new Set<string>()
 let librarySaveChain: Promise<void> = Promise.resolve()
+let appSettings: AppSettings | undefined
+let settingsLoadError: Error | undefined
+configureLocalAiProcessRunner((command, args, options) => runProcess(command, args, options))
 const privateAutomationEnabled = isPrivateAutomationEnabled(app.isPackaged, process.argv)
 const privateQaHooksEnabled = privateAutomationEnabled
   && process.argv.includes('--enable-private-qa-hooks')
@@ -135,6 +167,10 @@ function getLibraryPath() {
 
 function getPlaylistsPath() {
   return path.join(app.getPath('userData'), 'playlists.json')
+}
+
+function getSettingsPathOwner() {
+  return app.getPath('userData')
 }
 
 function defaultLyricLanguage(): Song['lyricLanguage'] {
@@ -197,7 +233,9 @@ function normalizeSong(song: Song): Song {
   return {
     ...song,
     lyrics: Array.isArray(song.lyrics) ? song.lyrics : [],
+    lyricEditorText: typeof song.lyricEditorText === 'string' ? song.lyricEditorText : undefined,
     lyricLanguage: { languageCode: code, languageName: name, languageSource: source },
+    ...normalizeLyricOwnership(song),
     languageCode: code,
     languageName: name,
     languageSource: source,
@@ -479,21 +517,15 @@ async function hydrateTranscriptMetadata(song: Song) {
   try {
     const transcript: unknown = JSON.parse(await readFile(transcriptPath, 'utf8'))
     if (!isTranscriptionResult(transcript)) return normalized
-    const languageCode = normalizeLanguageCode(transcript.languageCode)
-    const languageName = transcript.languageName?.trim() || transcript.language?.trim()
-    if (languageCode === 'und' || !languageName) return normalized
-    return normalizeSong({
-      ...normalized,
-      lyrics: transcript.lines,
-      languageCode,
-      languageName,
-      languageSource: transcript.languageSource === 'user' ? 'user' : 'detected',
-      lyricLanguage: {
-        languageCode,
-        languageName,
-        languageSource: transcript.languageSource === 'user' ? 'user' : 'detected',
-      },
-    })
+    const document = parseLyricsDocument(transcript)
+    if (!document) return normalized
+    if (normalized.languageSource === 'legacy' && document.source !== 'user') {
+      const languageCode = normalizeLanguageCode(transcript.languageCode)
+      const languageName = transcript.languageName?.trim() || transcript.language?.trim()
+      if (languageCode === 'und' || !languageName) return normalized
+    }
+    reapplyLyricsDocument(normalized, document)
+    return normalizeSong(normalized)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       logDiagnostic('ERROR', `Unable to hydrate transcript metadata for ${song.id}`, error)
@@ -866,7 +898,7 @@ async function inspectDeliverables(song: Song) {
       diagnostics: transcript.timingDiagnostics,
     })
     try {
-      applyTranscript(song, transcript)
+      reapplyLyricsDocument(song, transcript)
       setOutcome(song, 'lyrics', 'ready', {
         artifacts: [transcriptArtifact],
         diagnostics: transcript.timingDiagnostics,
@@ -968,6 +1000,7 @@ async function findFile(root: string, fileName: string): Promise<string | undefi
 }
 
 function applyTranscript(song: Song, transcript: TranscriptionResult) {
+  if (protectUserLyrics(song)) return
   const languageCode = normalizeLanguageCode(transcript.languageCode)
   const languageName = transcript.languageName?.trim() || transcript.language?.trim()
   if (languageCode === 'und' || !languageName) {
@@ -976,7 +1009,9 @@ function applyTranscript(song: Song, transcript: TranscriptionResult) {
   if (!transcript.lines.length) {
     throw new Error('Local Whisper AI did not find any timed lyrics.')
   }
-  song.lyrics = transcript.lines
+  const stamped = stampEngineTranscript(song, transcript)
+  song.lyrics = stamped.lines
+  song.lyricEditorText = stamped.text
   song.lyricLanguage = {
     languageCode,
     languageName,
@@ -985,6 +1020,98 @@ function applyTranscript(song: Song, transcript: TranscriptionResult) {
   song.languageCode = song.lyricLanguage.languageCode
   song.languageName = song.lyricLanguage.languageName
   song.languageSource = song.lyricLanguage.languageSource
+  song.lyricTextSource = 'engine'
+  song.lyricsRevision = stamped.revision ?? song.lyricsRevision + 1
+  song.lyricTimingMethod = 'whisper-grouped'
+  song.lyricRematchStatus = 'none'
+  song.lyricRematchMessage = undefined
+}
+
+async function ensureProtectedLyricsFile(song: Song) {
+  const target = outputPaths(song).transcript
+  try {
+    const existing: unknown = JSON.parse(await readFile(target, 'utf8'))
+    const document = parseLyricsDocument(existing)
+    if (document?.source === 'user' && isTranscriptionResult(document)) {
+      song.lyricEditorText = document.text
+      return document
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+      logDiagnostic('WARN', `Protected lyrics file for ${song.id} will be rewritten`, error)
+    }
+  }
+  const document = lyricsDocumentFromSong(normalizeSong(song))
+  await replaceTextFile(target, `${JSON.stringify(document, null, 2)}\n`)
+  return document
+}
+
+function lyricDependencies(songId: string) {
+  return {
+    isBusy: (id: string) => processingScheduler.has(id) || songProcessingPromises.has(id),
+    readSong: (id: string) => {
+      const song = library.find((item) => item.id === id)
+      return song ? normalizeSong(song) : undefined
+    },
+    writeSong: async (next: Song) => {
+      const existing = library.find((item) => item.id === next.id)
+      if (!existing) throw new Error('The song no longer exists in the library.')
+      const snapshot = structuredClone(existing)
+      Object.assign(existing, next)
+      try {
+        await saveLibrary()
+      } catch (error) {
+        Object.assign(existing, snapshot)
+        throw error
+      }
+    },
+    readLyrics: async (id: string) => {
+      try {
+        return await readFile(outputPaths({ id } as Song).transcript, 'utf8')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw error
+      }
+    },
+    writeLyrics: async (id: string, contents: string) => {
+      await replaceTextFile(outputPaths({ id } as Song).transcript, contents)
+    },
+    deleteLyrics: async (id: string) => {
+      await rm(outputPaths({ id } as Song).transcript, { force: true })
+    },
+    hasVocals: songHasVocals,
+    recognizeWords: (song: Song) => recognizeRematchWords(song),
+    mediaDuration: (song: Song) => song.duration,
+    publishFailure: (failed: Song) => {
+      const song = library.find((item) => item.id === failed.id)
+      if (!song || song.lyricsRevision !== failed.lyricsRevision || song.lyricTextSource !== 'user') return
+      song.lyricRematchStatus = 'failed'
+      song.lyricRematchMessage = failed.lyricRematchMessage
+      publish({
+        songId: song.id,
+        stage: song.processingStage,
+        progress: song.processingProgress,
+        message: song.lyricRematchMessage!,
+        song: hydrate(song),
+      })
+    },
+  }
+}
+
+async function songHasVocals(song: Song) {
+  const stems = await resolveStemPaths(song)
+  try {
+    await validateOutput(stems.vocals, 44)
+    return true
+  } catch {
+    if (!song.vocalPath) return false
+    try {
+      await validateOutput(song.vocalPath, 44)
+      return true
+    } catch {
+      return false
+    }
+  }
 }
 
 interface TranscriptionProgressEvent {
@@ -1000,23 +1127,27 @@ interface TranscriptionProgressEvent {
   file?: string
 }
 
+function currentAppSettings() {
+  if (settingsLoadError) throw settingsLoadError
+  if (!appSettings) throw new Error('Malformed application settings. Settings are not loaded.')
+  return appSettings
+}
+
 async function runTranscription(
   inputPath: string,
   outputPath: string,
   onProgress?: (event: TranscriptionProgressEvent) => void,
   onHeartbeat?: () => void,
+  song?: Song,
 ) {
   const temporaryOutput = `${outputPath}.${process.pid}.new`
-  const transcriptionScript = path.join(__dirname, 'transcribe.js')
   try {
-    await runProcess(process.execPath, [
-      transcriptionScript,
-      inputPath,
-      path.join(app.getPath('userData'), 'ai-models'),
-      temporaryOutput,
-      String(processingResources.cpuThreads),
-    ], {
-      env: { ELECTRON_RUN_AS_NODE: '1' },
+    await dispatchTranscription({
+      audioPath: inputPath,
+      cacheDir: path.join(app.getPath('userData'), 'ai-models'),
+      outputPath: temporaryOutput,
+      cpuThreads: processingResources.cpuThreads,
+      recognitionArgument: formatRecognitionArgument(currentAppSettings()),
       onStdoutLine: (line) => {
         if (!line.startsWith('KARAOKE_PROGRESS ')) return
         try {
@@ -1027,9 +1158,13 @@ async function runTranscription(
       },
       onHeartbeat,
     })
-    const transcript: unknown = JSON.parse(await readFile(temporaryOutput, 'utf8'))
-    if (!isTranscriptionResult(transcript)) {
+    const parsed: unknown = JSON.parse(await readFile(temporaryOutput, 'utf8'))
+    if (!isTranscriptionResult(parsed)) {
       throw new Error('Local Whisper AI produced an invalid lyrics file.')
+    }
+    const transcript = song && !protectUserLyrics(song) ? stampEngineTranscript(song, parsed) : parsed
+    if (transcript !== parsed) {
+      await writeFile(temporaryOutput, JSON.stringify(transcript, null, 2), 'utf8')
     }
     await replaceFile(temporaryOutput, outputPath)
     return transcript
@@ -1091,6 +1226,7 @@ function reportTranscriptionProgress(
 async function executeRetranscription(songId: string, tracker: ProcessingProgress) {
   const song = library.find((item) => item.id === songId)
   if (!song) throw new Error('Song was not found in the local library.')
+  if (protectUserLyrics(song)) throw new Error('Manual lyrics are protected from AI text replacement.')
 
   const outputRoot = path.join(app.getPath('userData'), 'processed', song.id)
   const transcriptionInput = path.join(outputRoot, 'speech-retranscribe.wav')
@@ -1121,6 +1257,7 @@ async function executeRetranscription(songId: string, tracker: ProcessingProgres
       transcriptOutput,
       (event) => reportTranscriptionProgress(tracker, event),
       () => applyProgress(tracker.heartbeat()),
+      song,
     )
     applyTranscript(song, transcript)
     applyProgress(tracker.update('lyrics', 'active', {
@@ -1188,11 +1325,10 @@ async function executeFullProcessing(songId: string, tracker: ProcessingProgress
     applyProgress(tracker.update('demucs', 'indeterminate', {
       message: 'Loading the local Demucs model',
     }))
-    const demucsCli = path.join(__dirname, 'demucs-runner.js')
-    await runProcess(process.execPath, [
-      demucsCli, separationInput, outputRoot, String(processingResources.cpuThreads),
-    ], {
-      env: { ELECTRON_RUN_AS_NODE: '1' },
+    await dispatchSeparation({
+      inputPath: separationInput,
+      outputRoot,
+      cpuThreads: processingResources.cpuThreads,
       onStdoutLine: (line) => {
         const chunk = /^(\d+)\/(\d+)$/.exec(line.trim())
         if (chunk) {
@@ -1294,12 +1430,15 @@ async function executeFullProcessing(songId: string, tracker: ProcessingProgress
       message: 'Enhanced output is validated',
     }))
 
-    const transcript = await runTranscription(
-      transcriptionInput,
-      transcriptOutput,
-      (event) => reportTranscriptionProgress(tracker, event),
-      () => applyProgress(tracker.heartbeat()),
-    )
+    const transcript = protectUserLyrics(song)
+      ? await ensureProtectedLyricsFile(song)
+      : await runTranscription(
+        transcriptionInput,
+        transcriptOutput,
+        (event) => reportTranscriptionProgress(tracker, event),
+        () => applyProgress(tracker.heartbeat()),
+        song,
+      )
     await Promise.all([
       access(song.sourcePath),
       access(instrumentalPath),
@@ -1439,11 +1578,10 @@ async function executeResumableProcessing(
               await copyFile(paths.source, path.join(temporaryRoot, `${name}.wav`))
             }
           } else {
-            const demucsCli = path.join(__dirname, 'demucs-runner.js')
-            await runProcess(process.execPath, [
-              demucsCli, paths.source, temporaryRoot, String(processingResources.cpuThreads),
-            ], {
-              env: { ELECTRON_RUN_AS_NODE: '1' },
+            await dispatchSeparation({
+              inputPath: paths.source,
+              outputRoot: temporaryRoot,
+              cpuThreads: processingResources.cpuThreads,
               onStdoutLine: (line) => {
                 const chunk = /^(\d+)\/(\d+)$/.exec(line.trim())
                 if (chunk) {
@@ -1607,7 +1745,9 @@ async function executeResumableProcessing(
           message: 'Loading the local Whisper model',
         }))
         triggerQaFailure(song.id, 'whisper-transcription')
-        if (privateQaHooksEnabled && qaFixtureAiEnabled) {
+        if (protectUserLyrics(song)) {
+          await ensureProtectedLyricsFile(song)
+        } else if (privateQaHooksEnabled && qaFixtureAiEnabled) {
           reportTranscriptionProgress(tracker, { phase: 'model', status: 'ready' })
           reportTranscriptionProgress(tracker, { phase: 'transcription', status: 'running' })
           const temporaryTranscript = `${paths.transcript}.${process.pid}.new`
@@ -1637,6 +1777,7 @@ async function executeResumableProcessing(
             paths.transcript,
             (event) => reportTranscriptionProgress(tracker, event),
             () => applyProgress(tracker.heartbeat()),
+            song,
           )
         }
         const transcript: TranscriptionResult = JSON.parse(await readFile(paths.transcript, 'utf8'))
@@ -1653,9 +1794,11 @@ async function executeResumableProcessing(
       }
       if (id === 'lyrics') {
         activate(id, 'Committing timed lyrics and language metadata')
+        if (protectUserLyrics(song)) await ensureProtectedLyricsFile(song)
         const transcript: unknown = JSON.parse(await readFile(paths.transcript, 'utf8'))
         if (!isTranscriptionResult(transcript)) throw new Error('Local Whisper AI produced invalid timed lyrics.')
-        applyTranscript(song, transcript)
+        if (protectUserLyrics(song)) reapplyLyricsDocument(song, transcript)
+        else applyTranscript(song, transcript)
         await ready(id, [await fingerprint(paths.transcript, 2, false)],
           `${transcript.lines.length} timed lyric lines are committed`,
           transcript.timingDiagnostics)
@@ -1737,6 +1880,26 @@ async function executeResumableProcessing(
   }
 }
 
+function existingSongJob(songId: string, kind: SongJobKind, editing = false) {
+  if ((!editing && lyricEditLocks.has(songId))
+    || (songProcessingPromises.has(songId) && songProcessingKinds.get(songId) !== kind)) {
+    throw new Error('Song is busy with a lyric edit or another local processing job. Retry when it finishes.')
+  }
+  return songProcessingPromises.get(songId)
+}
+
+function trackSongJob(songId: string, kind: SongJobKind, promise: Promise<Song>, cleanup?: () => void) {
+  songProcessingPromises.set(songId, promise)
+  songProcessingKinds.set(songId, kind)
+  const finish = () => {
+    if (songProcessingPromises.get(songId) !== promise) return
+    cleanup?.()
+    songProcessingPromises.delete(songId)
+    songProcessingKinds.delete(songId)
+  }
+  void promise.then(finish, finish)
+}
+
 function scheduleProcessing(
   songId: string,
   operation: 'full' | 'lyrics' | 'retry',
@@ -1745,7 +1908,7 @@ function scheduleProcessing(
   const song = library.find((item) => item.id === songId)
   if (!song) throw new Error('Song was not found in the local library.')
   const key = songId
-  const existing = songProcessingPromises.get(songId)
+  const existing = existingSongJob(songId, 'pipeline')
   if (existing) {
     pendingProcessingTargets.add(songId, component)
     return existing
@@ -1771,12 +1934,9 @@ function scheduleProcessing(
       return result ?? hydrate(song)
     },
   })
-  songProcessingPromises.set(songId, promise)
-  const cleanup = () => {
+  trackSongJob(songId, 'pipeline', promise, () => {
     pendingProcessingTargets.finish(songId)
-    songProcessingPromises.delete(songId)
-  }
-  void promise.then(cleanup, cleanup)
+  })
   return promise
 }
 
@@ -1789,11 +1949,135 @@ function processSong(songId: string) {
 }
 
 function retranscribeSong(songId: string) {
+  const song = library.find((item) => item.id === songId)
+  if (!song) throw new Error('Song was not found in the local library.')
+  if (protectUserLyrics(normalizeSong(song))) {
+    throw new Error('Manual lyrics are protected from AI text replacement.')
+  }
   return scheduleProcessing(songId, 'lyrics', 'lyrics')
 }
 
+async function recognizeRematchWords(song: Song) {
+  const outputRoot = outputPaths(song).root
+  const stems = await resolveStemPaths(song)
+  let vocalSource: string | undefined
+  try {
+    await validateOutput(stems.vocals, 44)
+    vocalSource = stems.vocals
+  } catch {
+    vocalSource = song.vocalPath
+  }
+  if (!vocalSource) throw new Error('The existing vocal output is unavailable.')
+  await access(vocalSource)
+  const transcriptionInput = path.join(outputRoot, 'speech-rematch.wav')
+  const transcriptOutput = path.join(outputRoot, 'asr-rematch.json')
+  await runFfmpegAtomic(resolveUnpacked(ffmpegInstaller.path), [
+    '-y', '-i', vocalSource, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', transcriptionInput,
+  ], transcriptionInput, () => undefined)
+  const transcript = await runTranscription(transcriptionInput, transcriptOutput)
+  return transcript.words ?? []
+}
+
+function enqueueLyricRematch(songId: string, revision: number) {
+  const existing = existingSongJob(songId, 'rematch', true)
+  if (existing) return existing
+  const promise = processingScheduler.enqueue({
+    key: songId,
+    run: async () => {
+      const outcome = await commitTimingRematch(lyricDependencies(songId), songId, revision)
+      const song = library.find((item) => item.id === songId)
+      if (!song) throw new Error('The song no longer exists in the library.')
+      if (outcome === 'committed' || outcome === 'failed') {
+        publish({
+          songId,
+          stage: song.processingStage,
+          progress: song.processingProgress,
+          message: song.processingMessage ?? song.lyricRematchMessage ?? 'Lyric timing rematch finished',
+          song: hydrate(song),
+        })
+      }
+      return hydrate(song)
+    },
+  })
+  trackSongJob(songId, 'rematch', promise)
+  void promise.catch((error) => {
+    logDiagnostic('ERROR', `Lyric timing rematch failed for ${songId}`, error)
+  })
+  return promise
+}
+
+async function updateLyrics(request: UpdateLyricsRequest) {
+  const songId = request && typeof request.songId === 'string' ? request.songId : ''
+  if (!songId || !library.some((song) => song.id === songId)) {
+    throw new Error('The song no longer exists in the library.')
+  }
+  if (lyricEditLocks.has(songId) || processingScheduler.has(songId) || songProcessingPromises.has(songId)) {
+    throw new Error('Lyrics are busy with local processing.')
+  }
+  lyricEditLocks.add(songId)
+  try {
+    const result = await updateSavedLyrics(lyricDependencies(songId), request)
+    const saved = library.find((song) => song.id === songId)
+    if (!saved) throw new Error('The song no longer exists in the library.')
+    if (result.rematch === 'queued') enqueueLyricRematch(saved.id, saved.lyricsRevision)
+    const hydrated = hydrate(saved)
+    publish({
+      songId: saved.id,
+      stage: saved.processingStage,
+      progress: saved.processingProgress,
+      message: saved.processingMessage ?? 'Saved edited lyrics',
+      song: hydrated,
+    })
+    return { song: hydrated, rematch: result.rematch }
+  } finally {
+    lyricEditLocks.delete(songId)
+  }
+}
+
+async function resumePendingLyricRematches() {
+  for (const song of [...library]) {
+    if (!shouldResumePendingRematch(song)) continue
+    if (processingScheduler.has(song.id) || songProcessingPromises.has(song.id)) continue
+    if (!(await songHasVocals(song))) {
+      song.lyricRematchStatus = 'skipped'
+      song.lyricRematchMessage = 'Rematch skipped because no vocal stem is available.'
+      try {
+        const document = await ensureProtectedLyricsFile(song)
+        document.rematch = { status: 'skipped', message: song.lyricRematchMessage }
+        await replaceTextFile(outputPaths(song).transcript, `${JSON.stringify(document, null, 2)}\n`)
+        await saveLibrary()
+      } catch (error) {
+        logDiagnostic('ERROR', `Unable to persist skipped lyric rematch for ${song.id}`, error)
+      }
+      continue
+    }
+    enqueueLyricRematch(song.id, song.lyricsRevision)
+  }
+}
+
+async function loadAppSettings() {
+  try {
+    appSettings = await readOrCreateAppSettings(getSettingsPathOwner())
+    settingsLoadError = undefined
+  } catch (error) {
+    settingsLoadError = error instanceof Error ? error : new Error(String(error))
+    logDiagnostic('ERROR', 'Unable to load application settings', error)
+  }
+}
+
+function getSettings() {
+  return currentAppSettings()
+}
+
+async function updateSettings(request: UpdateAppSettingsRequest) {
+  currentAppSettings()
+  appSettings = await updateAppSettingsFile(getSettingsPathOwner(), request)
+  settingsLoadError = undefined
+  return appSettings
+}
+
 function retryLibrarySave(song: Song) {
-  const existing = songProcessingPromises.get(song.id)
+  const existing = existingSongJob(song.id, 'library-save')
   if (existing) return existing
   const promise = processingScheduler.enqueue({
     key: song.id,
@@ -1839,9 +2123,7 @@ function retryLibrarySave(song: Song) {
       }
     },
   })
-  songProcessingPromises.set(song.id, promise)
-  const cleanup = () => songProcessingPromises.delete(song.id)
-  void promise.then(cleanup, cleanup)
+  trackSongJob(song.id, 'library-save', promise)
   return promise
 }
 
@@ -1851,12 +2133,25 @@ async function retryDeliverable(request: RetryDeliverableRequest) {
   }
   const song = library.find((item) => item.id === request.songId)
   if (!song) throw new Error('Song was not found in the local library.')
+  const existingJob = existingSongJob(song.id, request.component === 'library-save' ? 'library-save' : 'pipeline')
+  if ((request.component === 'lyrics' || request.component === 'whisper-transcription')
+    && protectUserLyrics(normalizeSong(song))) {
+    throw new Error('Manual lyrics are protected from AI text replacement.')
+  }
   if (request.component === 'library-save') return retryLibrarySave(song)
-  await inspectDeliverables(song)
+  if (!existingJob) {
+    // Preflight reapplies on-disk lyrics, so it needs the same exclusion as edits.
+    lyricEditLocks.add(song.id)
+    try {
+      await inspectDeliverables(song)
+    } finally {
+      lyricEditLocks.delete(song.id)
+    }
+  }
   const target = request.component
   const current = outcome(song, target)
   if (current.state === 'active' || current.state === 'queued') {
-    const existing = songProcessingPromises.get(song.id)
+    const existing = existingSongJob(song.id, 'pipeline')
     if (existing) return existing
     throw new Error('That component is already processing.')
   }
@@ -1902,6 +2197,10 @@ async function addSongPaths(filePaths: string[]) {
       addedAt: new Date().toISOString(),
       lyrics: [],
       lyricLanguage: defaultLyricLanguage(),
+      lyricTextSource: 'engine',
+      lyricsRevision: 0,
+      lyricTimingMethod: 'whisper-grouped',
+      lyricRematchStatus: 'none',
       languageCode: 'und',
       languageName: 'Unknown',
       languageSource: 'legacy',
@@ -2340,6 +2639,8 @@ app.whenReady().then(async () => {
   const recoveredInterruptedProcessing = await loadLibrary()
   logDiagnostic('INFO', `Loaded ${library.length} library songs from ${getLibraryPath()}`)
   if (recoveredInterruptedProcessing) await saveLibrary()
+  await loadAppSettings()
+  await resumePendingLyricRematches()
   await loadPlaylists()
   registerPrivateProtocol()
   registerPermissionHandlers()
@@ -2349,6 +2650,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('library:remove', (_event, id: string) => queuePlaylistMutation(() => removeSong(id)))
   ipcMain.handle('ai:process', (_event, id: string) => processSong(id))
   ipcMain.handle('ai:retranscribe', (_event, id: string) => retranscribeSong(id))
+  ipcMain.handle('lyrics:update', (_event, request: UpdateLyricsRequest) => updateLyrics(request))
+  ipcMain.handle('settings:get', () => getSettings())
+  ipcMain.handle('settings:set', (_event, request: UpdateAppSettingsRequest) => updateSettings(request))
   ipcMain.handle('ai:retry-deliverable', (_event, request: RetryDeliverableRequest) =>
     retryDeliverable(request))
   ipcMain.handle('playlists:get', () => playlistStore)

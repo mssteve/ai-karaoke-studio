@@ -150,6 +150,36 @@ export interface LyricLanguage {
   languageSource: 'detected' | 'user' | 'legacy'
 }
 
+export type LyricTextSource = 'engine' | 'user'
+export type LyricTimingMethod = 'whisper-grouped' | 'preserved-line-times' | 'text-to-whisper-word-rematch'
+export type LyricRematchStatus = 'none' | 'pending' | 'complete' | 'failed' | 'skipped'
+export type UiLocale = 'en' | 'fr'
+export type RecognitionLanguageMode = 'auto' | 'manual'
+
+export interface AppSettings {
+  schemaVersion: 1
+  uiLocale: UiLocale
+  recognitionLanguageMode: RecognitionLanguageMode
+  recognitionLanguageCode: string
+}
+
+export interface UpdateAppSettingsRequest {
+  uiLocale?: UiLocale
+  recognitionLanguageMode?: RecognitionLanguageMode
+  recognitionLanguageCode?: string
+}
+
+export interface UpdateLyricsRequest {
+  songId: string
+  text: string
+  expectedRevision?: number
+}
+
+export interface UpdateLyricsResult {
+  song: Song
+  rematch: 'queued' | 'skipped'
+}
+
 export interface Song {
   id: string
   title: string
@@ -166,10 +196,16 @@ export interface Song {
   enhancedPath?: string
   enhancedUrl?: string
   lyrics: LyricLine[]
+  lyricEditorText?: string
   lyricLanguage: LyricLanguage
   languageCode: string
   languageName: string
   languageSource: LyricLanguage['languageSource']
+  lyricTextSource: LyricTextSource
+  lyricsRevision: number
+  lyricTimingMethod: LyricTimingMethod
+  lyricRematchStatus: LyricRematchStatus
+  lyricRematchMessage?: string
   processingStage: ProcessingStage
   processingProgress: number
   processingMessage?: string
@@ -299,6 +335,9 @@ export interface KaraokeApi {
   removeSong: (id: string) => Promise<Song[]>
   processSong: (id: string) => Promise<Song>
   retranscribeSong: (id: string) => Promise<Song>
+  updateLyrics: (request: UpdateLyricsRequest) => Promise<UpdateLyricsResult>
+  getSettings: () => Promise<AppSettings>
+  updateSettings: (request: UpdateAppSettingsRequest) => Promise<AppSettings>
   retryDeliverable: (request: RetryDeliverableRequest) => Promise<Song>
   getPlaylists: () => Promise<PlaylistStore>
   createPlaylist: (request: CreatePlaylistRequest) => Promise<PlaylistStore>

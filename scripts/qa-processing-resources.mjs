@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import {
+  configureLocalAiProcessRunner,
+  dispatchSeparation,
+  dispatchTranscription,
+} from '../dist-electron/ai-providers.js'
 import {
   calculateProcessingThreadLimit,
   createProcessingResourcePolicy,
@@ -62,13 +68,26 @@ const demucsSource = await readFile('electron/demucs-runner.ts', 'utf8')
 const whisperSource = await readFile('electron/transcribe.ts', 'utf8')
 assert.match(mainSource, /ffmpegThreadArguments\(processingResources\)/,
   'FFmpeg invocations must receive the shared thread policy')
-assert.match(mainSource, /demucs-runner\.js[\s\S]*processingResources\.cpuThreads/,
-  'Demucs worker must receive the shared thread cap')
-assert.match(mainSource, /transcriptionScript[\s\S]*processingResources\.cpuThreads/,
-  'Whisper worker must receive the shared thread cap')
+const calls = []
+configureLocalAiProcessRunner(async (command, args, options) => {
+  calls.push({ command, args, options })
+})
+await dispatchSeparation({ inputPath: 'input.wav', outputRoot: 'stems', cpuThreads: policy.cpuThreads })
+await dispatchTranscription({
+  audioPath: 'speech.wav', cacheDir: 'models', outputPath: 'lyrics.json',
+  cpuThreads: policy.cpuThreads, recognitionArgument: 'manual:fr',
+})
+assert.equal(path.basename(calls[0].args[0]), 'demucs-runner.js')
+assert.deepEqual(calls[0].args.slice(1), ['input.wav', 'stems', '5'],
+  'real separation dispatch forwards the resource cap to the worker')
+assert.equal(path.basename(calls[1].args[0]), 'transcribe.js')
+assert.deepEqual(calls[1].args.slice(1), ['speech.wav', 'models', 'lyrics.json', '5', 'manual:fr'],
+  'real transcription dispatch forwards the cap independently of recognition language')
+assert.ok(calls.every((call) => call.command === process.execPath
+  && call.options.env.ELECTRON_RUN_AS_NODE === '1'), 'providers launch local Node-mode workers')
 assert.match(demucsSource, /InferenceSession\.create\(weights, onnxSessionOptions/,
   'Demucs ONNX session must enforce supported thread options')
 assert.match(whisperSource, /device: 'cpu'[\s\S]*session_options: onnxSessionOptions/,
   'Whisper ONNX sessions must enforce the CPU provider and supported thread options')
 
-console.log('PASS processing resources: 24 checks for CPU calculation and worker propagation.')
+console.log('PASS processing resources: CPU calculation, real provider dispatch, and worker propagation.')
