@@ -1,0 +1,185 @@
+{
+  "kind": "karaoke-release-evidence",
+  "reviewer": {
+    "identity": "Tank",
+    "role": "independent-release-reviewer"
+  },
+  "verdict": "APPROVE",
+  "status": "passed",
+  "passed": 44,
+  "total": 44,
+  "createdAt": "2026-10-24T14:45:47.5408642-07:00",
+  "requestReceivedAt": "2026-10-24T14:43:12.794-07:00",
+  "targetCommit": "e53d1ce5e4c050378f870f8ef11b28128c8c6884",
+  "parent": "07fbe553139daed234ba918485164a6c9ebdf0fb",
+  "branch": "release/0.3.6",
+  "packageVersion": "0.3.6",
+  "appxVersion": "0.3.6.0",
+  "source": {
+    "sha256": "fc8a64ebf1d123bdb10d993fc3af6a8d627ed4749fcaec08a4935d0b56abe7b0",
+    "fileCount": 112,
+    "computedBy": "scripts/release-artifact-verification.mjs snapshotProtectedSources and snapshotProtectedCommit",
+    "targetAndCheckoutMatch": true
+  },
+  "scope": "Fresh independent source re-review of Apoc's Queue advancement revision; ready for Switch's local Windows NSIS packaging, not package approval.",
+  "counting": "44 fresh rendered runtime cases: 36 full lyrics/language/playlist gates plus 8 canonical Queue/History gates. Build and 189 source/state checks also passed and are recorded separately, not added to the 44 runtime cases.",
+  "execution": [
+    {
+      "name": "clean-source-build",
+      "command": "npm run build",
+      "startedAt": "2026-10-24T14:43:44.4163689-07:00",
+      "completedAt": "2026-10-24T14:43:48.6094120-07:00",
+      "status": "passed",
+      "exitCode": 0,
+      "detail": "Clean TypeScript, Vite renderer and Electron build for karaoke-studio@0.3.6; Vite transformed 1871 modules."
+    },
+    {
+      "name": "full-rendered-regressions",
+      "command": "node scripts\\qa-lyrics-language-rendered.mjs --rendered",
+      "startedAt": "2026-10-24T14:44:03.5890279-07:00",
+      "completedAt": "2026-10-24T14:44:40.7144407-07:00",
+      "status": "passed",
+      "exitCode": 0,
+      "passed": 36,
+      "total": 36,
+      "sourceAndStateChecks": {
+        "passed": 189,
+        "total": 189
+      },
+      "rawReport": ".squad/agents/tank/release-0.3.6-e53d1ce-evidence/rendered/report.json",
+      "originalEvidence": "scripts\\qa-artifacts\\lyrics-language-rendered-6676-1792878243822"
+    },
+    {
+      "name": "canonical-queue-history",
+      "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\qa-queue-history-run.ps1 -SeedProfile scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\seed -FixtureRoot scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\fixtures -Output scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\queue-history -SkipBuild",
+      "startedAt": "2026-10-24T14:44:03.9312687-07:00",
+      "completedAt": "2026-10-24T14:44:33.7132042-07:00",
+      "status": "passed",
+      "exitCode": 0,
+      "passed": 8,
+      "total": 8,
+      "rawReport": ".squad/agents/tank/release-0.3.6-e53d1ce-evidence/canonical/report.json",
+      "detail": "SkipBuild reused the successful unchanged-source build executed in this review. Fresh synthetic MP3/MP4 fixtures and seed, isolated APPDATA/LOCALAPPDATA, unique private pipe. Wrapper verified protected-History source/compiled checks, report cases, screenshots and unchanged fixture SHA-256/length/mtime across execution."
+    }
+  ],
+  "independentReview": [
+    {
+      "name": "exact-revision-and-independence",
+      "status": "passed",
+      "detail": "Compared rejected c18a7cca092c70c60c19fb72c23b8bebc0374064 with exact target. Only src/App.tsx and scripts/qa-lyrics-language-rendered.mjs differ. Apoc authored the independent revision per handoff. 07fbe55 and attribution-only e53d1ce have identical trees. Target author is not Tank. Main remains 05e54a5d46a3864e5dbc7a4971b47bc1bc0bbff2."
+    },
+    {
+      "name": "authoritative-mutation-order",
+      "status": "passed",
+      "detail": "src/App.tsx:655-668 serializes renderer store operations, obtains current playlistsRef at execution, and synchronously publishes the returned authoritative snapshot before resolving. The stale post-render ref synchronization was removed. All setPlaylists writes use this operation chain."
+    },
+    {
+      "name": "fresh-cursor-and-latest-intent",
+      "status": "passed",
+      "detail": "src/App.tsx:715-807 validates cursor requests against the authoritative current snapshot even for an already-current entry, coalesces the same in-flight cursor/archive request, and gates post-await activation by the latest intent generation. Fresh timestamps remain in optimistic-concurrency requests. External stale cursor and already-current external-clear requests demonstrably reject, and the operation chain recovers."
+    },
+    {
+      "name": "rejected-manual-next-and-natural-end-closed",
+      "status": "passed",
+      "detail": "Fresh rendered evidence proves manual Next archives the first duplicate identity once and really plays the second duplicate (audio paused=false, clock=0.317665s). Natural end archives that second identity once and really autoplays the other song (audio paused=false, clock=0.438476s). Final entry archives once, leaves Queue empty and History ordered by all three identities, reaches native ended/paused with both intents false at 7.682812s/7.682812s. Canonical independent 8/8 corroborates natural end, Next, navigation and restart persistence."
+    },
+    {
+      "name": "test-integrity",
+      "status": "passed",
+      "detail": "Inspected the actual test diff, including all added mutation/Queue assertions and delayed acknowledgement adapters. Real backend cursor/archive mutations run before acknowledgement is held; adapters do not return fabricated store state. Tests require actual media playback/clock, exact entry identity/order and archive counts, native terminal end, newer-intent safety and retained external concurrency rejection. Multiline diagnostic fix waits for the rendered diagnostic payload before unchanged content assertions; no acceptance bound or assertion was loosened. No production/test edit was made by Tank."
+    },
+    {
+      "name": "visual-review",
+      "status": "passed",
+      "detail": "Visually reviewed fresh Queue manual-Next, natural-end and final-ended screenshots, Queue duplicate playback, multiline French diagnostic, canonical unclipped plus menu without History, and canonical newest-first History navigation. All 21 generated screenshots are preserved byte-for-byte in tracked Tank-owned evidence."
+    },
+    {
+      "name": "safe-isolation-and-source-identity",
+      "status": "passed",
+      "detail": "Synthetic generated fixtures only, isolated profiles and APPDATA/LOCALAPPDATA, no live user library or real AI inference. Both harnesses exited 0 and their spawned Electron profiles have no remaining processes. Clean source tree before evidence creation; package and both root lock versions are 0.3.6; no live release lock; git diff --check passed."
+    }
+  ],
+  "diagnostics": {
+    "unexpectedRendererErrors": 0,
+    "canonicalRendererErrors": 0,
+    "fullRenderedFinalExpectedErrors": [
+      {
+        "message": "Renderer exception: Unable to save interface settings",
+        "detail": "QA settings save failure"
+      },
+      {
+        "message": "Renderer exception: Unable to load interface settings",
+        "detail": "QA settings read failure"
+      },
+      {
+        "message": "Renderer exception: Unable to load this audio version",
+        "detail": "Unknown media error"
+      }
+    ],
+    "earlierExpectedErrors": "Two deliberately induced stale-cursor rejections are asserted exactly in the raw mutation cases before the harness restarts. They are not concealed or claimed to be zero total errors."
+  },
+  "fixtures": [
+    {
+      "path": "scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\fixtures\\qa-tone.mp3",
+      "bytes": 89396,
+      "lastWriteTimeUtc": "2026-10-24T21:44:05.739Z",
+      "sha256": "09f9d1506f6703300d3ce768f0616fdfa86779537efec59a776c7306b2ca17cb",
+      "integrity": "Canonical wrapper before/after SHA-256, length and mtime checks passed."
+    },
+    {
+      "path": "scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\fixtures\\qa-video.mp4",
+      "bytes": 32934,
+      "lastWriteTimeUtc": "2026-10-24T21:44:05.906Z",
+      "sha256": "4c1b275d778c521fb3005128758a9c4e461c082408d2b94b12012080d4d2a04e",
+      "integrity": "Canonical wrapper before/after SHA-256, length and mtime checks passed."
+    },
+    {
+      "path": "scripts\\qa-artifacts\\lyrics-language-rendered-6676-1792878243822\\profile\\lyrics-edit-fixture.mp3",
+      "bytes": 89396,
+      "lastWriteTimeUtc": "2026-10-24T21:44:05.098Z",
+      "sha256": "09f9d1506f6703300d3ce768f0616fdfa86779537efec59a776c7306b2ca17cb",
+      "integrity": "Post-run identity matches generated synthetic source; no independent pre-run measurement of this harness-owned copy is claimed."
+    },
+    {
+      "path": "scripts\\qa-artifacts\\lyrics-language-rendered-6676-1792878243822\\profile\\lyrics-edit-other.mp3",
+      "bytes": 89396,
+      "lastWriteTimeUtc": "2026-10-24T21:44:05.098Z",
+      "sha256": "09f9d1506f6703300d3ce768f0616fdfa86779537efec59a776c7306b2ca17cb",
+      "integrity": "Post-run identity matches generated synthetic source; no independent pre-run measurement of this harness-owned copy is claimed."
+    }
+  ],
+  "artifactBase": ".squad/agents/tank/release-0.3.6-e53d1ce-evidence/",
+  "artifacts": [
+    { "path": "canonical/history-navigation.png", "bytes": 296546, "sha256": "0e6f4d7e35b78acc98e1121d30d5d6ae9beac00bb8e353c7ed1fd93f1b0c1eb1" },
+    { "path": "canonical/plus-menu-rendered.png", "bytes": 329133, "sha256": "ee56e1849a2e1e0981c2f9d5d3fa95aeb8b2deb271eb5b1350072346c309b116" },
+    { "path": "canonical/report.json", "bytes": 2641, "sha256": "8148412452c5d9431296d60f690e9d28c20f81a3e5bacb5acaed8323d7587cd6" },
+    { "path": "rendered/delayed-settings-controls.png", "bytes": 317710, "sha256": "c6e93aff8c7c76d740409d0185b6f6ddab3a6680d3d8774587f9e5b0633af78c" },
+    { "path": "rendered/final-french-renderer.png", "bytes": 420890, "sha256": "a4047a01ae762d3f3caeec977b1ae3fe437a073b6ac1f026f18b39ceaad75a78" },
+    { "path": "rendered/french-dynamic-progress.png", "bytes": 409384, "sha256": "26a13f4378671bd264a5ec831f0b1a5f16e7a46e1307287f83c51533efef16be" },
+    { "path": "rendered/french-playback-error.png", "bytes": 424732, "sha256": "e7f3d462e5603a214186dd6453145260a2997ce45447fe5c4fc7d836c95c1966" },
+    { "path": "rendered/french-plus-menu.png", "bytes": 428265, "sha256": "267250fd11724498d126fb6c7bc99779416cf090a9f02217ddbdb7aa160ee4e9" },
+    { "path": "rendered/french-recognition.png", "bytes": 322272, "sha256": "ed1cd8db29aa978b8a55a583e233e70d2a6e30d2f338a45ab881f73c3954180d" },
+    { "path": "rendered/french-system-and-user-playlists.png", "bytes": 375261, "sha256": "fc22a08a0e24409d512437872eb59815605bf85cf50693839dc10e8ce88a101c" },
+    { "path": "rendered/multiline-rematch-diagnostic.png", "bytes": 369092, "sha256": "c6111b78265c85e10ca1edeec69fc20d2533216f618fae4390d4dec78af3df67" },
+    { "path": "rendered/open-editor-rematch-complete.png", "bytes": 219618, "sha256": "ec7e8dc016052174e699ec79693f533a1fc1ab814b022c3b5e272c058ecc617e" },
+    { "path": "rendered/open-editor-rematch-failed.png", "bytes": 397108, "sha256": "e20e6d7fc2cfea2273f4a50ef3b802dc37622ac66678dc3c8f652b0757528fda" },
+    { "path": "rendered/playlist-history-double-play.png", "bytes": 290810, "sha256": "8e14a81f3366cf8f75c15f018604ee61aa9cef9da725fa861f0672291bea246a" },
+    { "path": "rendered/playlist-mutation-recovery.png", "bytes": 279869, "sha256": "b6bbbf568c08a6486d9a88b1a97cc55546fadf32df7a793139734576ce049406" },
+    { "path": "rendered/playlist-playlist-double-play.png", "bytes": 289255, "sha256": "740ea3868b074033cc61883854123c240b566fb2a049cab522542a0237450e0a" },
+    { "path": "rendered/playlist-queue-double-play.png", "bytes": 285557, "sha256": "68c616f760b358746f8377ca5a424f5d67adb48fca4589ddc76549d6bd0137dd" },
+    { "path": "rendered/queue-final-ended.png", "bytes": 272679, "sha256": "047f5c45886e4b9b146f920577b2208c08f8c9b2710bad4def1145d5778003ff" },
+    { "path": "rendered/queue-manual-next.png", "bytes": 282031, "sha256": "775ec95702c20f5492c070258bcb4405202aa55bfd6f9562af4ad054158f2bef" },
+    { "path": "rendered/queue-natural-end.png", "bytes": 274609, "sha256": "d81b16f5e867bafdbc03f57c522136d79fc09417615c98bb119eccafadee98a8" },
+    { "path": "rendered/report.json", "bytes": 24032, "sha256": "628236edad0bc170f92429e2de3860a403acf1d1d4be04e337804b1711e7896e" },
+    { "path": "rendered/settings-load-failure-english-fallback.png", "bytes": 325547, "sha256": "a2f27ec8a3298def03c41dedf8856459ac924a02d30ad8f0852ba8db63cd125c" },
+    { "path": "rendered/settings-save-failure.png", "bytes": 340859, "sha256": "ff0ade045bdd7306ba6e270ed4c4863e71a79b4cb7c029d860247bd78772c0b6" }
+  ],
+  "limitations": [
+    "Source approval only. No installer or other package has been built, installed, validated, signed, submitted or approved in this review. No push, tag or publication.",
+    "Only local Windows NSIS packaging is requested; no Store identity, Store package generation or Store submission is authorized by this verdict.",
+    "Generated media, real IPC/persistence/playback and a deliberate FFmpeg failure were exercised. Completion/progress subscription events were injected by the existing harness. No real AI inference, recognition quality or model-quality claim.",
+    "The eleven unchanged-backend suites mentioned in the handoff are earlier context, not newly executed results and not counted here. Verified electron has no change between rejected c18a7cc and reviewed e53d1ce.",
+    "Canonical hostile arbitrary preload/IPC invocation and exceptionally long rendered-menu scrolling remain manual gaps; protected-History guard verification is static/source-and-compiled, not a hostile IPC end-to-end claim.",
+    "No broad whole-codebase or new release-pipeline audit was performed. This bounded re-review covers the rejected advancement artifact and directly coupled regression gates."
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "verdict": "APPROVE",
+  "generatedAt": "2026-10-24T21:44:33.605Z",
+  "executable": "C:\\git\\karaoke-player\\node_modules\\electron\\dist\\electron.exe",
+  "electronEntry": "C:\\git\\karaoke-player\\dist-electron\\main.js",
+  "isolatedProfile": "C:\\git\\karaoke-player\\scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\queue-history\\profile",
+  "cases": [
+    {
+      "id": "history-migration",
+      "status": "passed",
+      "evidence": "Loaded queue:queue, history:history, legacy-user:playlist from a store without History."
+    },
+    {
+      "id": "playback-control-placement",
+      "status": "passed",
+      "evidence": "Rendered footer controls are ordered Previous (Previous song), Play (Play), Next (Next song)."
+    },
+    {
+      "id": "ordinary-target-insertion",
+      "status": "passed",
+      "evidence": "Rendered plus menu omitted History and insertion succeeded for Queue and the migrated user playlist."
+    },
+    {
+      "id": "natural-end-atomic-history",
+      "status": "passed",
+      "evidence": "Natural completion removed the first Queue entry, prepended it to History, and auto-played the next Queue entry."
+    },
+    {
+      "id": "next-atomic-history",
+      "status": "passed",
+      "evidence": "Next removed the active Queue entry and prepended it to newest-first History."
+    },
+    {
+      "id": "queue-history-navigation",
+      "status": "passed",
+      "evidence": "Previous moved to older History, Next moved to newer History, and Next from newest History returned to Queue."
+    },
+    {
+      "id": "history-persistence",
+      "status": "passed",
+      "evidence": "Restart preserved History (2) and Queue (1) entries."
+    },
+    {
+      "id": "renderer-clean",
+      "status": "passed",
+      "evidence": "Runtime recorded 0 renderer errors.",
+      "details": []
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "plus-menu-rendered",
+      "path": "C:\\git\\karaoke-player\\scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\queue-history\\plus-menu-rendered.png",
+      "bytes": 329133,
+      "renderedState": {
+        "readyState": "complete",
+        "bodyWidth": 1440,
+        "bodyHeight": 920,
+        "rootChildren": 1,
+        "visible": true
+      }
+    },
+    {
+      "name": "history-navigation",
+      "path": "C:\\git\\karaoke-player\\scripts\\qa-artifacts\\tank-source-036-rereview-20261024-1444\\queue-history\\history-navigation.png",
+      "bytes": 296546,
+      "renderedState": {
+        "readyState": "complete",
+        "bodyWidth": 1440,
+        "bodyHeight": 920,
+        "rootChildren": 1,
+        "visible": true
+      }
+    }
+  ]
+}

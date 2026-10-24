@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "kind": "karaoke-release-approval",
+  "reviewer": {
+    "identity": "Tank",
+    "role": "independent-release-reviewer"
+  },
+  "verdict": "APPROVE",
+  "packageVersion": "0.3.6",
+  "appxVersion": "0.3.6.0",
+  "branch": "release/0.3.6",
+  "targetCommit": "e53d1ce5e4c050378f870f8ef11b28128c8c6884",
+  "source": {
+    "sha256": "fc8a64ebf1d123bdb10d993fc3af6a8d627ed4749fcaec08a4935d0b56abe7b0",
+    "fileCount": 112
+  },
+  "evidence": [
+    {
+      "name": "independent-rendered-and-canonical-source-gates",
+      "path": ".squad/agents/tank/release-0.3.6-e53d1ce-evidence.json",
+      "sha256": "0657279abe88faac7e465786f1324a2c90278f947a0136dd680519fc7f419230",
+      "status": "passed",
+      "passed": 44,
+      "total": 44,
+      "createdAt": "2026-10-24T14:45:47.5408642-07:00"
+    }
+  ],
+  "createdAt": "2026-10-24T14:46:57.2687271-07:00",
+  "expiresAt": "2026-10-26T14:46:57.2687271-07:00"
+}

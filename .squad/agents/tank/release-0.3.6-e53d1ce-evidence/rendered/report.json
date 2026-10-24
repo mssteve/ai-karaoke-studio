@@ -1,0 +1,723 @@
+{
+  "status": "passed",
+  "cases": [
+    {
+      "id": "queue-manual-next-archives-once-and-plays-duplicate",
+      "status": "passed",
+      "evidence": {
+        "queue": [
+          {
+            "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+            "songId": "lyrics-edit-fixture"
+          },
+          {
+            "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+            "songId": "lyrics-edit-other"
+          }
+        ],
+        "history": [
+          {
+            "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+            "songId": "lyrics-edit-fixture"
+          }
+        ],
+        "playback": {
+          "songId": "lyrics-edit-fixture",
+          "mode": "original",
+          "status": "playing",
+          "playingIntent": true,
+          "currentTime": 0.215225,
+          "duration": 7.682812,
+          "activeLyricIndex": 0,
+          "activeLyricStart": 0,
+          "activeLyricText": "Saved first line",
+          "lyricLanguage": {
+            "languageCode": "en",
+            "languageName": "English",
+            "languageSource": "detected",
+            "songId": "lyrics-edit-fixture"
+          },
+          "lyricSongId": "lyrics-edit-fixture",
+          "playlist": {
+            "selectedPlaylistId": "queue",
+            "activePlaylistId": "queue",
+            "currentEntryId": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+            "nextEntryId": "fa4f0912-25b9-4938-942c-9499b9540794",
+            "revision": 3,
+            "transitionReason": "natural-end",
+            "transitionCount": 3,
+            "playlists": [
+              {
+                "id": "queue",
+                "name": "Queue",
+                "kind": "queue",
+                "currentEntryId": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                "entries": [
+                  {
+                    "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+                    "songId": "lyrics-edit-other"
+                  }
+                ]
+              },
+              {
+                "id": "history",
+                "name": "History",
+                "kind": "history",
+                "entries": [
+                  {
+                    "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+                    "songId": "lyrics-edit-fixture"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "media": {
+          "paused": false,
+          "time": 0.317665
+        }
+      }
+    },
+    {
+      "id": "queue-natural-end-archives-once-and-autoplays",
+      "status": "passed",
+      "evidence": {
+        "seek": {
+          "duration": 7.682812,
+          "runway": 1.1524218,
+          "target": 6.5303902,
+          "observed": {
+            "time": 6.518844,
+            "duration": 7.682812,
+            "paused": false
+          }
+        },
+        "queue": [
+          {
+            "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+            "songId": "lyrics-edit-other"
+          }
+        ],
+        "history": [
+          {
+            "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+            "songId": "lyrics-edit-fixture"
+          },
+          {
+            "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+            "songId": "lyrics-edit-fixture"
+          }
+        ],
+        "playback": {
+          "songId": "lyrics-edit-other",
+          "mode": "original",
+          "status": "playing",
+          "playingIntent": true,
+          "currentTime": 0.215823,
+          "duration": 7.682812,
+          "activeLyricIndex": 0,
+          "activeLyricStart": 0,
+          "activeLyricText": "Other saved line",
+          "lyricLanguage": {
+            "languageCode": "en",
+            "languageName": "English",
+            "languageSource": "detected",
+            "songId": "lyrics-edit-other"
+          },
+          "lyricSongId": "lyrics-edit-other",
+          "playlist": {
+            "selectedPlaylistId": "queue",
+            "activePlaylistId": "queue",
+            "currentEntryId": "fa4f0912-25b9-4938-942c-9499b9540794",
+            "revision": 4,
+            "transitionReason": "natural-end",
+            "transitionCount": 4,
+            "playlists": [
+              {
+                "id": "queue",
+                "name": "Queue",
+                "kind": "queue",
+                "currentEntryId": "fa4f0912-25b9-4938-942c-9499b9540794",
+                "entries": [
+                  {
+                    "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+                    "songId": "lyrics-edit-other"
+                  }
+                ]
+              },
+              {
+                "id": "history",
+                "name": "History",
+                "kind": "history",
+                "entries": [
+                  {
+                    "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+                    "songId": "lyrics-edit-fixture"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "media": {
+          "paused": false,
+          "time": 0.438476
+        }
+      }
+    },
+    {
+      "id": "queue-final-natural-end-is-terminal",
+      "status": "passed",
+      "evidence": {
+        "seek": {
+          "duration": 7.682812,
+          "runway": 1.1524218,
+          "target": 6.5303902,
+          "observed": {
+            "time": 6.51566,
+            "duration": 7.682812,
+            "paused": false
+          }
+        },
+        "queue": [],
+        "history": [
+          {
+            "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+            "songId": "lyrics-edit-other"
+          },
+          {
+            "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+            "songId": "lyrics-edit-fixture"
+          },
+          {
+            "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+            "songId": "lyrics-edit-fixture"
+          }
+        ],
+        "playback": {
+          "songId": "lyrics-edit-other",
+          "mode": "original",
+          "status": "ended",
+          "playingIntent": false,
+          "currentTime": 7.682812,
+          "duration": 7.682812,
+          "activeLyricIndex": 0,
+          "activeLyricStart": 0,
+          "activeLyricText": "Other saved line",
+          "lyricLanguage": {
+            "languageCode": "en",
+            "languageName": "English",
+            "languageSource": "detected",
+            "songId": "lyrics-edit-other"
+          },
+          "lyricSongId": "lyrics-edit-other",
+          "playlist": {
+            "selectedPlaylistId": "queue",
+            "revision": 5,
+            "transitionReason": "natural-end",
+            "transitionCount": 5,
+            "playlists": [
+              {
+                "id": "queue",
+                "name": "Queue",
+                "kind": "queue",
+                "entries": []
+              },
+              {
+                "id": "history",
+                "name": "History",
+                "kind": "history",
+                "entries": [
+                  {
+                    "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+                    "songId": "lyrics-edit-other"
+                  },
+                  {
+                    "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+                    "songId": "lyrics-edit-fixture"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "media": {
+          "ended": true,
+          "paused": true,
+          "time": 7.682812,
+          "duration": 7.682812,
+          "intent": "false"
+        }
+      }
+    },
+    {
+      "id": "paused-remove-activates-fresh-surviving-duplicate",
+      "status": "passed",
+      "evidence": {
+        "removed": "a8626013-8482-4b21-a708-9f03fe0af128",
+        "selected": "e475893e-751b-48e2-a078-b3a6301fd7b6"
+      }
+    },
+    {
+      "id": "named-next-and-previous-use-current-store",
+      "status": "passed",
+      "evidence": {
+        "next": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+        "previous": "e475893e-751b-48e2-a078-b3a6301fd7b6"
+      }
+    },
+    {
+      "id": "playing-remove-advances-to-surviving-entry",
+      "status": "passed",
+      "evidence": {
+        "entryId": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+        "duration": 7.682812,
+        "runway": 1.1524218
+      }
+    },
+    {
+      "id": "repeated-next-and-late-archive-preserve-newer-intent",
+      "status": "passed",
+      "evidence": {
+        "archivedOnce": "6cf9c580-e574-4266-ae5b-90a52b061f43",
+        "playback": {
+          "songId": "lyrics-edit-other",
+          "mode": "original",
+          "status": "playing",
+          "playingIntent": true,
+          "currentTime": 0.476424,
+          "duration": 7.682812,
+          "activeLyricIndex": 0,
+          "activeLyricStart": 0,
+          "activeLyricText": "Other saved line",
+          "lyricLanguage": {
+            "languageCode": "en",
+            "languageName": "English",
+            "languageSource": "detected",
+            "songId": "lyrics-edit-other"
+          },
+          "lyricSongId": "lyrics-edit-other",
+          "playlist": {
+            "selectedPlaylistId": "queue",
+            "revision": 9,
+            "transitionReason": "manual-library",
+            "transitionCount": 9,
+            "playlists": [
+              {
+                "id": "queue",
+                "name": "Queue",
+                "kind": "queue",
+                "currentEntryId": "3c032a37-f910-4268-a45b-fd84a7950fa4",
+                "entries": [
+                  {
+                    "id": "3c032a37-f910-4268-a45b-fd84a7950fa4",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "30db2995-719d-4daf-8171-277c93ad9307",
+                    "songId": "lyrics-edit-other"
+                  }
+                ]
+              },
+              {
+                "id": "history",
+                "name": "History",
+                "kind": "history",
+                "entries": [
+                  {
+                    "id": "6cf9c580-e574-4266-ae5b-90a52b061f43",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+                    "songId": "lyrics-edit-other"
+                  },
+                  {
+                    "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                    "songId": "lyrics-edit-fixture"
+                  },
+                  {
+                    "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+                    "songId": "lyrics-edit-fixture"
+                  }
+                ]
+              },
+              {
+                "id": "755876fe-7cb4-4a86-bc57-a260792509bf",
+                "name": "Mutation transport QA",
+                "kind": "playlist",
+                "currentEntryId": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+                "entries": [
+                  {
+                    "id": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+                    "songId": "lyrics-edit-other"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "remove-after-delayed-cursor-does-not-resurrect",
+      "status": "passed",
+      "evidence": {
+        "removedId": "30db2995-719d-4daf-8171-277c93ad9307"
+      }
+    },
+    {
+      "id": "clear-after-delayed-cursor-does-not-resurrect",
+      "status": "passed",
+      "evidence": {
+        "selectedPlaylistId": "queue",
+        "transitionReason": "manual-library",
+        "transitionCount": 9,
+        "queueRevision": 37,
+        "revision": 37,
+        "playlists": [
+          {
+            "id": "queue",
+            "name": "Queue",
+            "kind": "queue",
+            "entries": []
+          },
+          {
+            "id": "history",
+            "name": "History",
+            "kind": "history",
+            "entries": [
+              {
+                "id": "6cf9c580-e574-4266-ae5b-90a52b061f43",
+                "songId": "lyrics-edit-fixture"
+              },
+              {
+                "id": "fa4f0912-25b9-4938-942c-9499b9540794",
+                "songId": "lyrics-edit-other"
+              },
+              {
+                "id": "b9ba3164-68a9-41ca-bb3b-78b3231bd6f1",
+                "songId": "lyrics-edit-fixture"
+              },
+              {
+                "id": "1d67870a-771c-46b1-964f-ebf1dadabddb",
+                "songId": "lyrics-edit-fixture"
+              }
+            ]
+          },
+          {
+            "id": "755876fe-7cb4-4a86-bc57-a260792509bf",
+            "name": "Mutation transport QA",
+            "kind": "playlist",
+            "currentEntryId": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+            "entries": [
+              {
+                "id": "af572a26-87d7-40ca-af17-14cb6dbc7669",
+                "songId": "lyrics-edit-other"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "delete-after-delayed-cursor-does-not-resurrect",
+      "status": "passed",
+      "evidence": {
+        "deletedId": "755876fe-7cb4-4a86-bc57-a260792509bf"
+      }
+    },
+    {
+      "id": "external-stale-cursor-rejects-and-operation-chain-recovers",
+      "status": "passed",
+      "evidence": {
+        "expectedErrors": [
+          {
+            "sequence": 1,
+            "at": "2026-10-24T21:44:19.766Z",
+            "source": "renderer-exception",
+            "message": "Renderer exception: Unable to select the playlist entry",
+            "detail": "Error invoking remote method 'playlists:set-cursor': Error: The playlist changed. Refresh and try again."
+          }
+        ]
+      }
+    },
+    {
+      "id": "external-clear-rejects-already-current-cursor",
+      "status": "passed",
+      "evidence": {
+        "expectedErrors": [
+          {
+            "sequence": 1,
+            "at": "2026-10-24T21:44:19.766Z",
+            "source": "renderer-exception",
+            "message": "Renderer exception: Unable to select the playlist entry",
+            "detail": "Error invoking remote method 'playlists:set-cursor': Error: The playlist changed. Refresh and try again."
+          },
+          {
+            "sequence": 2,
+            "at": "2026-10-24T21:44:20.242Z",
+            "source": "renderer-exception",
+            "message": "Renderer exception: Unable to select the playlist entry",
+            "detail": "Error invoking remote method 'playlists:set-cursor': Error: The playlist changed. Refresh and try again."
+          }
+        ]
+      }
+    },
+    {
+      "id": "playlist-queue-single-select",
+      "status": "passed",
+      "evidence": {
+        "entryId": "b3c6d400-54ac-491e-8595-2ee640debb84",
+        "songId": "lyrics-edit-fixture"
+      }
+    },
+    {
+      "id": "playlist-queue-delayed-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "2f523900-25d6-431e-a270-944e58959790",
+        "songId": "lyrics-edit-fixture",
+        "cursorWrites": 1,
+        "media": {
+          "paused": false,
+          "time": 0.356035
+        }
+      }
+    },
+    {
+      "id": "playlist-queue-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "4ae00f66-e85e-49cc-bd6e-01f5b37d3a51",
+        "songId": "lyrics-edit-other"
+      }
+    },
+    {
+      "id": "playlist-playlist-single-select",
+      "status": "passed",
+      "evidence": {
+        "entryId": "cc72296a-28a2-4f8e-8867-232ee2dd78ec",
+        "songId": "lyrics-edit-fixture"
+      }
+    },
+    {
+      "id": "playlist-playlist-delayed-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "843201f5-e374-413f-b8f8-c8158d4c2605",
+        "songId": "lyrics-edit-fixture",
+        "cursorWrites": 1,
+        "media": {
+          "paused": false,
+          "time": 0.436531
+        }
+      }
+    },
+    {
+      "id": "playlist-playlist-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "ea35daa3-45d5-4883-9f67-2e96cc29f8ed",
+        "songId": "lyrics-edit-other"
+      }
+    },
+    {
+      "id": "playlist-history-single-select",
+      "status": "passed",
+      "evidence": {
+        "entryId": "ed7bf8cc-b715-45ee-af4e-0541b162eb8c",
+        "songId": "lyrics-edit-other"
+      }
+    },
+    {
+      "id": "playlist-history-delayed-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "5382a8c2-daf5-416f-a529-da6237031cf7",
+        "songId": "lyrics-edit-fixture",
+        "cursorWrites": 1,
+        "media": {
+          "paused": false,
+          "time": 0.406972
+        }
+      }
+    },
+    {
+      "id": "playlist-history-double-play",
+      "status": "passed",
+      "evidence": {
+        "entryId": "95b710fa-6884-45fa-9f84-3c813f53481b",
+        "songId": "lyrics-edit-fixture"
+      }
+    },
+    {
+      "id": "modal-keyboard-focus-and-trap",
+      "status": "passed",
+      "evidence": "Native CDP Tab wraps and clean Escape restores Edit focus"
+    },
+    {
+      "id": "save-preserves-live-playback-mode-and-queue",
+      "status": "passed",
+      "evidence": {
+        "mediaBefore": 0.686213,
+        "mediaAfter": {
+          "time": 0.892585,
+          "paused": false
+        },
+        "mode": "instrumental",
+        "queueEntries": [
+          {
+            "id": "e8245f16-6c06-411e-b944-3c3dd971351f",
+            "songId": "lyrics-edit-other"
+          }
+        ]
+      }
+    },
+    {
+      "id": "exact-text-reopen-and-restart",
+      "status": "passed",
+      "evidence": "CRLF, LRC, blank lines, trailing spaces, small edits and legacy lyrics.json hydration round-trip"
+    },
+    {
+      "id": "independent-recognition-and-locale-persistence",
+      "status": "passed",
+      "evidence": "French interface/manual French recognition survive restart; saved song language remains English"
+    },
+    {
+      "id": "delayed-hydration-preserves-manual-russian",
+      "status": "passed",
+      "evidence": {
+        "before": {
+          "schemaVersion": 1,
+          "uiLocale": "en",
+          "recognitionLanguageMode": "manual",
+          "recognitionLanguageCode": "ru"
+        },
+        "after": {
+          "schemaVersion": 1,
+          "uiLocale": "fr",
+          "recognitionLanguageMode": "manual",
+          "recognitionLanguageCode": "ru"
+        },
+        "writePatches": [
+          {
+            "uiLocale": "fr"
+          }
+        ],
+        "earlyClickWhileHydrating": "disabled; no write"
+      }
+    },
+    {
+      "id": "failed-and-independent-settings-saves",
+      "status": "passed",
+      "evidence": "Failed save rolls back visibly; a stale renderer locale patch preserves another writer’s recognition code"
+    },
+    {
+      "id": "settings-read-failure-is-safe-and-visible",
+      "status": "passed",
+      "evidence": "English fallback reports read failure and leaves persisted preferences untouched"
+    },
+    {
+      "id": "open-editor-real-rematch-failure",
+      "status": "passed",
+      "evidence": {
+        "backendStatus": "failed",
+        "revision": 3,
+        "savedText": "Edited text retained\nSecond edited line",
+        "retainedLines": [
+          {
+            "text": "Edited text retained",
+            "start": 0,
+            "end": 1.2
+          },
+          {
+            "text": "Second edited line",
+            "start": 1.2,
+            "end": 2.4
+          }
+        ],
+        "modalStatus": "La resynchronisation a échoué. Votre texte modifié et la synchronisation existante ont été conservés : La resynchronisation des paroles a échoué : ffmpeg version N-92722-gf22fcd4483 Copyright (c) 2000-2018 the FFmpeg developers\r\n  built with gcc 8.2.1 (GCC) 20181201\r\n  configuration: --enable-gpl --enable-version3 --enable-sdl2 --enable-fontconfig --enable-gnutls --enable-iconv --enable-libass --enable-libbluray --enable-libfreetype --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libopus --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libtheora --enable-libtwolame --enable-libvpx --enable-libwavpack --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libzimg --enable-lzma --enable-zlib --enable-gmp --enable-libvidstab --enable-libvorbis --enable-libvo-amrwbenc --enable-libmysofa --enable-libspeex --enable-libxvid --enable-libaom --enable-libmfx --enable-amf --enable-ffnvcodec --enable-cuvid --enable-d3d11va --enable-nvenc --enable-nvdec --enable-dxva2 --enable-avisynth --enable-libopenmpt\r\n  libavutil      56. 24.101 / 56. 24.101\r\n  libavcodec     58. 42.102 / 58. 42.102\r\n  libavformat    58. 24.101 / 58. 24.101\r\n  libavdevice    58.  6.101 / 58.  6.101\r\n  libavfilter     7. 46.101 /  7. 46.101\r\n  libswscale      5.  4.100 /  5.  4.100\r\n  libswresample   3.  4.100 /  3.  4.100\r\n  libpostproc    55.  4.100 / 55.  4.100\r\nC:\\git\\karaoke-player\\scripts\\qa-artifacts\\lyrics-language-rendered-6676-1792878243822\\profile\\qa-invalid-rematch-vocal.wav: Invalid data found when processing input. Le texte et la synchronisation enregistrés ont été conservés. Whisper ne peut pas forcer l’alignement du texte fourni.",
+        "layout": {
+          "statusScrolls": true,
+          "actionsVisible": true
+        }
+      }
+    },
+    {
+      "id": "terminal-rematch-before-save-ack",
+      "status": "passed",
+      "evidence": "Delayed real save acknowledgement cannot overwrite the already-published failed revision"
+    },
+    {
+      "id": "open-editor-complete-transition",
+      "status": "passed",
+      "evidence": "Same-revision completion event through the live renderer subscription replaces queued status without changing the draft"
+    },
+    {
+      "id": "rematch-success-does-not-mask-unsaved-draft",
+      "status": "passed",
+      "evidence": "Editing clears saved acknowledgement; terminal result is tied to the saved revision/text"
+    },
+    {
+      "id": "multiline-owned-wrapper-preserves-diagnostics",
+      "status": "passed",
+      "evidence": "Both application-owned wrappers translate while raw path, engine text and line breaks remain exact"
+    },
+    {
+      "id": "french-actual-processing-message-families",
+      "status": "passed",
+      "evidence": "21 emitted processing/progress/error families render in French; metadata stays untouched"
+    },
+    {
+      "id": "french-renderer-playback-error",
+      "status": "passed",
+      "evidence": "Actual playback-controller error handler renders a French application-owned prefix"
+    },
+    {
+      "id": "french-system-playlists-by-kind-only",
+      "status": "passed",
+      "evidence": "System Queue/History tabs, headings and plus menu translate; literal user Queue/History names and all stored names remain unchanged"
+    }
+  ],
+  "rendererErrors": [
+    {
+      "sequence": 1,
+      "at": "2026-10-24T21:44:34.314Z",
+      "source": "renderer-exception",
+      "message": "Renderer exception: Unable to save interface settings",
+      "detail": "QA settings save failure"
+    },
+    {
+      "sequence": 2,
+      "at": "2026-10-24T21:44:34.805Z",
+      "source": "renderer-exception",
+      "message": "Renderer exception: Unable to load interface settings",
+      "detail": "QA settings read failure"
+    },
+    {
+      "sequence": 3,
+      "at": "2026-10-24T21:44:37.889Z",
+      "source": "renderer-exception",
+      "message": "Renderer exception: Unable to load this audio version",
+      "detail": "Unknown media error"
+    }
+  ],
+  "limitations": [
+    "Generated media only; real IPC, persistence, FFmpeg failure and playback.",
+    "Completion/progress events injected at the renderer subscription; no AI inference or quality claim."
+  ]
+}
