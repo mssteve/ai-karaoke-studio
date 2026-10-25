@@ -19,6 +19,7 @@ out/
 *.msixbundle
 *.nupkg
 *.blockmap
+.qa*
 
 # TypeScript and Vite generated state
 *.tsbuildinfo
