@@ -102,7 +102,6 @@ async function addSong(songId, playlistId) {
 }
 
 async function selectPlaylist(id) {
-  await click('[data-testid="nav-playlists"]')
   await click(`[data-testid="playlist-${id}"]`)
   return waitFor(async () => {
     const value = await status()

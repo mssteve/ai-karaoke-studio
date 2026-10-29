@@ -255,7 +255,6 @@ async function createPlaylistForSong(songId, name) {
 }
 
 async function selectPlaylistView(playlistId) {
-  await clickTestId('nav-playlists')
   await clickTestId(`playlist-${playlistId}`)
   return waitFor(async () => {
     const value = await status()
@@ -380,9 +379,9 @@ async function main() {
   await attempt('navigation-and-ai-studio-absent', async () => {
     const body = await snapshot('body')
     const libraryNav = await snapshot('[data-testid="nav-library"]')
-    const playlistsNav = await snapshot('[data-testid="nav-playlists"]')
-    const passed = !body.text.includes('AI Studio') && !libraryNav.disabled && !playlistsNav.disabled
-    record('navigation-and-ai-studio-absent', passed, `AI Studio text ${body.text.includes('AI Studio') ? 'is present' : 'is absent'}; Library and Playlists controls are enabled.`)
+    const queueNav = await snapshot('[data-testid="playlist-queue"]')
+    const passed = !body.text.includes('AI Studio') && !libraryNav.disabled && !queueNav.disabled
+    record('navigation-and-ai-studio-absent', passed, `AI Studio text ${body.text.includes('AI Studio') ? 'is present' : 'is absent'}; Library and Queue controls are enabled.`)
   })
 
   let primary = processed[0]

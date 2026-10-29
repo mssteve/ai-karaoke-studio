@@ -350,7 +350,7 @@ checks += 6
 
 console.log(`PASS lyrics-language-rendered: ${checks} source and state checks`)
 
-if (process.argv.includes('--rendered') || process.argv.includes('--playlists-rendered')) {
+if (process.argv.includes('--rendered') || process.argv.includes('--playlists-rendered') || process.argv.includes('--sidebar-rendered')) {
   await runRendered()
 }
 
@@ -401,6 +401,91 @@ async function runRendered() {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  async function runSidebarRegressions() {
+    const click = (id) => page.evaluate(`document.querySelector('[data-testid="${id}"]').click()`)
+    for (let index = 0; index < 12; index += 1) {
+      await click('sidebar-new-playlist')
+      await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[data-testid="playlist-name"]'))`), 'create playlist dialog')
+      await page.evaluate(`(() => {
+        const input = document.querySelector('[data-testid="playlist-name"]')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(`Sidebar collection ${index} with a long playlist name`)})
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })()`)
+      await click('playlist-create-confirm')
+      await waitFor(async () => page.evaluate(`!document.querySelector('[data-testid="playlist-name"]')`), 'created playlist')
+    }
+    const structure = await page.evaluate(`(() => {
+      const sidebar = document.querySelector('.sidebar')
+      return {
+        system: [...sidebar.querySelectorAll('.sidebar-library-lists button')].map(button => button.textContent.trim()),
+        custom: sidebar.querySelectorAll('.sidebar-playlists button').length,
+        last: sidebar.lastElementChild.dataset.testid,
+        current: sidebar.querySelector('[aria-current="page"]')?.textContent,
+        nestedList: Boolean(document.querySelector('.content .playlist-tabs')),
+        topLevelPlaylistTab: Boolean(document.querySelector('[data-testid="nav-playlists"]')),
+        contentSeparated: Boolean(document.querySelector('.playlist-contents > .playlist-empty')),
+        contentWidth: document.querySelector('.playlist-contents').getBoundingClientRect().width,
+        paneWidth: document.querySelector('.library-pane').clientWidth
+      }
+    })()`)
+    assert.deepEqual(structure.system, ['Queue0', 'History0'])
+    assert.equal(structure.custom, 12)
+    assert.equal(structure.last, 'sidebar-new-playlist')
+    assert.match(structure.current, /Sidebar collection 11/)
+    assert.equal(structure.nestedList, false)
+    assert.equal(structure.topLevelPlaylistTab, false)
+    assert.equal(structure.contentSeparated, true)
+    assert.ok(structure.paneWidth - structure.contentWidth < 80)
+    record('sidebar-library-and-playlist-layout', structure)
+
+    await click('nav-library')
+    await click('playlist-queue')
+    await waitFor(async () => page.evaluate(`document.querySelector('[data-testid="playlist-queue"]').getAttribute('aria-current') === 'page'
+      && document.querySelector('.playlist-heading h2')?.textContent === 'Queue'`), 'direct Queue navigation')
+    await click('nav-library')
+    await click('playlist-history')
+    await waitFor(async () => page.evaluate(`document.querySelector('[data-testid="playlist-history"]').getAttribute('aria-current') === 'page'
+      && document.querySelector('.playlist-heading h2')?.textContent === 'History'`), 'direct History navigation')
+    record('sidebar-direct-system-navigation', 'Queue and History open directly from Library without changing playback')
+
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 480, deviceScaleFactor: 1, mobile: false })
+    const layout = await page.evaluate(`(() => {
+      const sidebar = document.querySelector('.sidebar')
+      const nav = sidebar.querySelector('nav')
+      const create = sidebar.lastElementChild.getBoundingClientRect()
+      const bounds = sidebar.getBoundingClientRect()
+      return { overflow: nav.scrollHeight > nav.clientHeight,
+        visible: create.top >= bounds.top && create.bottom <= bounds.bottom,
+        widthFits: sidebar.scrollWidth <= sidebar.clientWidth && nav.scrollWidth <= nav.clientWidth }
+    })()`)
+    assert.deepEqual(layout, { overflow: true, visible: true, widthFits: true })
+    const scrollStyle = await page.evaluate(`(() => {
+      const nav = document.querySelector('.sidebar nav')
+      return {
+        width: getComputedStyle(nav, '::-webkit-scrollbar').width,
+        thumb: getComputedStyle(nav, '::-webkit-scrollbar-thumb').backgroundColor,
+        arrows: getComputedStyle(nav, '::-webkit-scrollbar-button').display
+      }
+    })()`)
+    assert.deepEqual(scrollStyle, { width: '8px', thumb: 'rgb(69, 64, 78)', arrows: 'none' })
+    const scrollPoint = await page.evaluate(`(() => {
+      const rect = document.querySelector('.sidebar nav').getBoundingClientRect()
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    })()`)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...scrollPoint, deltaX: 0, deltaY: 400 })
+    await waitFor(async () => page.evaluate(`document.querySelector('.sidebar nav').scrollTop > 0`), 'sidebar wheel scrolling')
+    await page.evaluate(`document.querySelector('.sidebar-playlists button:last-child').focus()`)
+    assert.equal(await page.evaluate(`(() => {
+      const nav = document.querySelector('.sidebar nav').getBoundingClientRect()
+      const button = document.activeElement.getBoundingClientRect()
+      return button.top >= nav.top && button.bottom <= nav.bottom
+    })()`), true)
+    record('sidebar-dark-scrollbar-wheel-and-keyboard', scrollStyle)
+    await capture('sidebar-compact')
+    await page.send('Emulation.clearDeviceMetricsOverride')
+    record('sidebar-scroll-keeps-create-visible', layout)
   }
 
   async function start() {
@@ -694,7 +779,7 @@ async function runRendered() {
     assert.equal(new Set(seed.map(entry => entry.id)).size, 3, 'Duplicate songs retain distinct entry identities')
     await instrumentRenderer()
     await waitFor(async () => page.evaluate(`document.querySelectorAll('[data-testid="song-row"]').length === 2`), 'queue fixture library ready')
-    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
+    await page.evaluate(`document.querySelector('[data-testid="playlist-queue"]').click()`)
     await waitFor(async () => page.evaluate(`Boolean(document.querySelector('[data-testid="playlist-entry-${seed[0].id}"]'))`), 'seeded Queue rendered')
     await clickPlaylistEntry(seed[0].id, 1)
     await clickPlaylistEntry(seed[0].id, 2)
@@ -786,7 +871,6 @@ async function runRendered() {
     })()`)
     await instrumentRenderer()
     await waitFor(async () => page.evaluate(`document.querySelectorAll('[data-testid="song-row"]').length === 2`), 'mutation fixture library ready')
-    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
 
     async function openPlaylist(id) {
       await page.evaluate(`document.querySelector('[data-testid="playlist-${id}"]').click()`)
@@ -879,7 +963,6 @@ async function runRendered() {
     record('repeated-next-and-late-archive-preserve-newer-intent', { archivedOnce: queue.entries[0].id, playback: lateArchive.playback })
     await sendCommand({ action: 'control', value: { action: 'pause' } })
 
-    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
     await openPlaylist('queue')
     await delayCursor(queue.entries[2])
     await page.evaluate(`document.querySelector('[data-testid="playlist-remove-${queue.entries[2].id}"]').click()`)
@@ -1004,7 +1087,6 @@ async function runRendered() {
     for (const playlistId of ['queue', seed.namedId, 'history']) {
       const playlist = seed.store.playlists.find((item) => item.id === playlistId)
       const [first, second, third] = playlist.entries
-      await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
       await page.evaluate(`document.querySelector('[data-testid="playlist-${playlistId}"]').click()`)
       await waitFor(async () => (await sendCommand({ action: 'status' })).playlists.selectedPlaylistId === playlistId,
         `${playlist.kind} selected`)
@@ -1262,7 +1344,6 @@ async function runRendered() {
     record('french-renderer-playback-error', 'Actual playback-controller error handler renders a French application-owned prefix')
 
     const playlistsBefore = JSON.parse(await readFile(path.join(profile, 'playlists.json'), 'utf8'))
-    await page.evaluate(`document.querySelector('[data-testid="nav-playlists"]').click()`)
     await waitFor(async () => page.evaluate(`document.querySelector('[data-testid="playlist-queue"] span')?.textContent === 'File d’attente'`), 'French system playlist tabs')
     assert.equal(await page.evaluate(`document.querySelector('[data-testid="playlist-history"] span').textContent`), 'Historique')
     await page.evaluate(`document.querySelector('[data-testid="playlist-queue"]').click()`)
@@ -1316,6 +1397,14 @@ async function runRendered() {
       return text.includes('Lyrics Edit Fixture') && text.includes('Extract with local AI') ? text : undefined
     }, 'rendered library')
     await waitFor(async () => page.evaluate('document.querySelector("audio")?.readyState >= 3'), 'playable generated source')
+    if (process.argv.includes('--sidebar-rendered')) {
+      await runSidebarRegressions()
+      const diagnostics = await sendCommand({ action: 'diagnostics' })
+      assert.deepEqual(diagnostics.rendererErrors, [])
+      await writeFile(path.join(output, 'report.json'), JSON.stringify({ status: 'passed', cases }, null, 2))
+      console.log(`PASS sidebar-rendered: ${cases.length} rendered gates; evidence ${output}`)
+      return
+    }
     await runQueueTransportRegressions()
     await runPlaylistMutationRegressions()
     await runPlaylistClickRegressions()

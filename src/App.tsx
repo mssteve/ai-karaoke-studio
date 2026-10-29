@@ -962,6 +962,7 @@ function App() {
   async function choosePlaylist(playlist: Playlist) {
     try {
       await updatePlaylistStore(() => karaokeApi.selectPlaylist({ playlistId: playlist.id }))
+      setView('playlists')
     } catch (reason) {
       showError('Unable to open the playlist', reason)
     }
@@ -995,6 +996,7 @@ function App() {
         setNotice(`Created ${created.name} and added the song.`)
       } else if (created) {
         await updatePlaylistStore(() => karaokeApi.selectPlaylist({ playlistId: created.id }))
+        setView('playlists')
         setNotice(`Created ${created.name}.`)
       }
       setPlaylistName('')
@@ -1199,6 +1201,20 @@ function App() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [lyricsEditor?.songId, lyricsEditor?.discardPrompt, Boolean(lyricsEditor)])
 
+  function sidebarPlaylist(playlist: Playlist) {
+    const active = view === 'playlists' && selectedPlaylist?.id === playlist.id
+    return (
+      <button key={playlist.id} data-testid={`playlist-${playlist.id}`}
+        className={`nav-item sidebar-playlist ${active ? 'active' : ''}`}
+        aria-current={active ? 'page' : undefined}
+        onClick={() => void choosePlaylist(playlist)}>
+        {playlist.kind === 'history' ? <Clock3 size={16} /> : <ListMusic size={16} />}
+        <span>{playlistDisplayName(settings.uiLocale, playlist)}</span>
+        <small>{playlist.entries.length}</small>
+      </button>
+    )
+  }
+
   return (
     <div className="app-shell">
       <header className="titlebar">
@@ -1257,16 +1273,24 @@ function App() {
             aria-current={view === 'library' ? 'page' : undefined} onClick={() => setView('library')}>
             <Library size={18} /> {t('Library')}
           </button>
-          <button data-testid="nav-playlists" className={`nav-item ${view === 'playlists' ? 'active' : ''}`}
-            aria-current={view === 'playlists' ? 'page' : undefined} onClick={() => setView('playlists')}>
-            <ListMusic size={18} /> {t('Playlists')}
-          </button>
+          <div className="sidebar-library-lists">
+            {(['queue', 'history'] as const).map((kind) => {
+              const playlist = playlists.playlists.find((item) => item.kind === kind)
+              return playlist ? sidebarPlaylist(playlist) : null
+            })}
+          </div>
+          <div className="sidebar-playlists" role="group" aria-label={t('Saved playlists')}>
+            {playlists.playlists.filter((playlist) => playlist.kind === 'playlist').map(sidebarPlaylist)}
+          </div>
         </nav>
-        <div className="sidebar-spacer" />
         <div className="local-card">
           <div className="local-card-icon"><WandSparkles size={18} /></div>
           <div><strong>{t('Runs locally')}</strong><p>{t('Your music never leaves this PC.')}</p></div>
         </div>
+        <button className="nav-item sidebar-create" data-testid="sidebar-new-playlist" onClick={() => {
+          setCreateForSongId(undefined)
+          setShowCreatePlaylist(true)
+        }}><Plus size={18} /> {t('New playlist')}</button>
       </aside>
 
       <main className="content">
@@ -1356,77 +1380,58 @@ function App() {
             </>
           ) : (
             <div className="playlists-view">
-              <div className="page-heading"><div><span className="eyebrow">{t('FIFO COLLECTIONS')}</span><h1>{t('Playlists')}</h1>
-                <p>{t('Queue order is preserved exactly as added.')}</p></div>
-                <button className="primary-button" onClick={() => {
-                  setCreateForSongId(undefined)
-                  setShowCreatePlaylist(true)
-                }}><Plus size={18} /> {t('New playlist')}</button>
-              </div>
-              <div className="playlist-layout">
-                <div className="playlist-tabs" aria-label={t('Saved playlists')}>
-                  {playlists.playlists.map((playlist) => (
-                    <button key={playlist.id} data-testid={`playlist-${playlist.id}`}
-                      className={selectedPlaylist?.id === playlist.id ? 'active' : ''}
-                      aria-current={selectedPlaylist?.id === playlist.id ? 'true' : undefined}
-                      onClick={() => void choosePlaylist(playlist)}>
-                      <ListMusic size={15} /><span>{playlistDisplayName(settings.uiLocale, playlist)}</span><small>{playlist.entries.length}</small>
-                    </button>
-                  ))}
-                </div>
-                <div className="playlist-contents">
-                  <div className="playlist-heading"><div><span className="eyebrow">{t('PLAYING IN ORDER')}</span>
-                    <h2>{selectedPlaylist ? playlistDisplayName(settings.uiLocale, selectedPlaylist) : t('Playlist')}</h2></div>
-                    <div>
-                      <button data-testid="playlist-play" disabled={!selectedPlaylist?.entries.length} onClick={() => {
-                        if (!selectedPlaylist) return
-                        const entry = selectedPlaylist.entries.find((item) => item.id === selectedPlaylist.currentEntryId)
-                          ?? selectedPlaylist.entries[0]
-                        if (entry) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)
-                      }}><Play size={15} /> {t('Play')}</button>
-                      <button data-testid="playlist-clear" disabled={!selectedPlaylist?.entries.length}
-                        onClick={() => setConfirmClear(true)}><Trash2 size={15} /> {t('Clear')}</button>
-                      {selectedPlaylist?.kind === 'playlist' && (
-                        <>
-                          <button onClick={() => {
-                            setRenameName(selectedPlaylist.name)
-                            setShowRenamePlaylist(true)
-                          }}>{t('Rename')}</button>
-                          <button onClick={() => setConfirmDelete(true)}>{t('Delete')}</button>
-                        </>
-                      )}
-                    </div>
+              <div className="playlist-contents">
+                <div className="playlist-heading"><div><span className="eyebrow">{t('PLAYING IN ORDER')}</span>
+                  <h2>{selectedPlaylist ? playlistDisplayName(settings.uiLocale, selectedPlaylist) : t('Playlist')}</h2></div>
+                  <div>
+                    <button data-testid="playlist-play" disabled={!selectedPlaylist?.entries.length} onClick={() => {
+                      if (!selectedPlaylist) return
+                      const entry = selectedPlaylist.entries.find((item) => item.id === selectedPlaylist.currentEntryId)
+                        ?? selectedPlaylist.entries[0]
+                      if (entry) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)
+                    }}><Play size={15} /> {t('Play')}</button>
+                    <button data-testid="playlist-clear" disabled={!selectedPlaylist?.entries.length}
+                      onClick={() => setConfirmClear(true)}><Trash2 size={15} /> {t('Clear')}</button>
+                    {selectedPlaylist?.kind === 'playlist' && (
+                      <>
+                        <button onClick={() => {
+                          setRenameName(selectedPlaylist.name)
+                          setShowRenamePlaylist(true)
+                        }}>{t('Rename')}</button>
+                        <button onClick={() => setConfirmDelete(true)}>{t('Delete')}</button>
+                      </>
+                    )}
                   </div>
-                  {!selectedPlaylist?.entries.length ? (
-                    <div className="playlist-empty"><ListMusic size={28} /><strong>{t('No songs yet')}</strong>
-                      <span>{selectedPlaylist?.kind === 'history'
-                        ? t('Songs move here after they finish playing from Queue.')
-                        : t('Use a song’s plus menu in Library to add it here.')}</span></div>
-                  ) : (
-                    <ol className="playlist-entries">
-                      {selectedPlaylist.entries.map((entry, index) => {
-                        const song = songs.find((item) => item.id === entry.songId)
-                        const current = activePlaylistId === selectedPlaylist.id && activeEntryId === entry.id
-                        return (
-                          <li key={entry.id} className={current ? 'current' : ''}>
-                            <button data-testid={`playlist-entry-${entry.id}`}
-                              onClick={(event) => {
-                                if (event.detail < 2) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', false)
-                              }}
-                              onDoubleClick={() => void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)}>
-                              <span>{index + 1}</span><span><strong>{song?.title ?? t('Missing song')}</strong>
-                                <small>{song?.artist ?? t('Unavailable')}</small></span>
-                              {current && <span className="queue-current">{t('Current')}</span>}
-                            </button>
-                            <button data-testid={`playlist-remove-${entry.id}`}
-                              aria-label={t(`Remove ${song?.title ?? 'song'} from ${playlistDisplayName(settings.uiLocale, selectedPlaylist)}`)}
-                              onClick={() => void removeEntry(selectedPlaylist, entry)}><X size={16} /></button>
-                          </li>
-                        )
-                      })}
-                    </ol>
-                  )}
                 </div>
+                {!selectedPlaylist?.entries.length ? (
+                  <div className="playlist-empty"><ListMusic size={28} /><strong>{t('No songs yet')}</strong>
+                    <span>{selectedPlaylist?.kind === 'history'
+                      ? t('Songs move here after they finish playing from Queue.')
+                      : t('Use a song’s plus menu in Library to add it here.')}</span></div>
+                ) : (
+                  <ol className="playlist-entries">
+                    {selectedPlaylist.entries.map((entry, index) => {
+                      const song = songs.find((item) => item.id === entry.songId)
+                      const current = activePlaylistId === selectedPlaylist.id && activeEntryId === entry.id
+                      return (
+                        <li key={entry.id} className={current ? 'current' : ''}>
+                          <button data-testid={`playlist-entry-${entry.id}`}
+                            onClick={(event) => {
+                              if (event.detail < 2) void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', false)
+                            }}
+                            onDoubleClick={() => void activatePlaylistEntry(selectedPlaylist, entry, 'manual-playlist', true)}>
+                            <span>{index + 1}</span><span><strong>{song?.title ?? t('Missing song')}</strong>
+                              <small>{song?.artist ?? t('Unavailable')}</small></span>
+                            {current && <span className="queue-current">{t('Current')}</span>}
+                          </button>
+                          <button data-testid={`playlist-remove-${entry.id}`}
+                            aria-label={t(`Remove ${song?.title ?? 'song'} from ${playlistDisplayName(settings.uiLocale, selectedPlaylist)}`)}
+                            onClick={() => void removeEntry(selectedPlaylist, entry)}><X size={16} /></button>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
               </div>
             </div>
           )}
