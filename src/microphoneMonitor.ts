@@ -42,6 +42,8 @@ export interface MicrophoneMonitorSnapshot {
   errorCode?: MicrophoneMonitorErrorCode
   error?: string
   gain: number
+  echoEnabled: boolean
+  echoAmount: number
   telemetry: MicrophoneMonitorTelemetry
 }
 
@@ -61,6 +63,11 @@ export const MIN_MONITOR_GAIN = 0
 export const DEFAULT_MONITOR_GAIN = 2
 export const MAX_MONITOR_GAIN = 4
 export const MONITOR_GAIN_STEP = 0.05
+export const DEFAULT_ECHO_AMOUNT = 0.25
+export const MAX_ECHO_AMOUNT = 0.5
+export const ECHO_AMOUNT_STEP = 0.01
+export const ECHO_DELAY_SECONDS = 0.18
+export const ECHO_FEEDBACK = 0.25
 export const SIGNAL_THRESHOLD = 0.001
 export const NO_INPUT_WARNING_MS = 1_500
 export const OUTPUT_TOO_HOT_THRESHOLD = 0.85
@@ -125,6 +132,8 @@ export class MicrophoneMonitorController {
   private snapshot: MicrophoneMonitorSnapshot = {
     state: 'off',
     gain: DEFAULT_MONITOR_GAIN,
+    echoEnabled: false,
+    echoAmount: DEFAULT_ECHO_AMOUNT,
     telemetry: {},
   }
   private listeners = new Set<(snapshot: MicrophoneMonitorSnapshot) => void>()
@@ -133,6 +142,8 @@ export class MicrophoneMonitorController {
   private context?: MonitorAudioContext
   private source?: MediaStreamAudioSourceNode
   private gainNode?: GainNode
+  private echoGainNode?: GainNode
+  private echoNodes: AudioNode[] = []
   private inputAnalyser?: AnalyserNode
   private outputAnalyser?: AnalyserNode
   private mediaDevices?: MediaDevices
@@ -166,6 +177,30 @@ export class MicrophoneMonitorController {
     this.update({ gain })
   }
 
+  setEchoEnabled(echoEnabled: boolean) {
+    if (echoEnabled === this.snapshot.echoEnabled) return
+    this.update({ echoEnabled })
+    this.updateEchoGain()
+  }
+
+  setEchoAmount(value: number) {
+    const echoAmount = Number.isFinite(value)
+      ? Math.min(MAX_ECHO_AMOUNT, Math.max(0, value))
+      : DEFAULT_ECHO_AMOUNT
+    if (echoAmount === this.snapshot.echoAmount) return
+    this.update({ echoAmount })
+    this.updateEchoGain()
+  }
+
+  private updateEchoGain() {
+    if (!this.context || !this.echoGainNode) return
+    this.echoGainNode.gain.setTargetAtTime(
+      this.snapshot.echoEnabled ? this.snapshot.echoAmount : 0,
+      this.context.currentTime,
+      0.008,
+    )
+  }
+
   async enable() {
     if (this.snapshot.state === 'requesting' || this.snapshot.state === 'on') return
     const operation = ++this.generation
@@ -191,6 +226,8 @@ export class MicrophoneMonitorController {
     let stream: MediaStream | undefined
     let source: MediaStreamAudioSourceNode | undefined
     let gainNode: GainNode | undefined
+    let echoGainNode: GainNode | undefined
+    const echoNodes: AudioNode[] = []
     let inputAnalyser: AnalyserNode | undefined
     let outputAnalyser: AnalyserNode | undefined
     try {
@@ -226,11 +263,32 @@ export class MicrophoneMonitorController {
       inputAnalyser.connect(gainNode)
       gainNode.connect(outputAnalyser)
       outputAnalyser.connect(context.destination)
+
+      const echoDelay = context.createDelay(ECHO_DELAY_SECONDS)
+      echoNodes.push(echoDelay)
+      const echoFeedback = context.createGain()
+      echoNodes.push(echoFeedback)
+      echoGainNode = context.createGain()
+      echoNodes.push(echoGainNode)
+      echoDelay.delayTime.setValueAtTime(ECHO_DELAY_SECONDS, context.currentTime)
+      echoFeedback.gain.setValueAtTime(ECHO_FEEDBACK, context.currentTime)
+      echoGainNode.gain.setValueAtTime(
+        this.snapshot.echoEnabled ? this.snapshot.echoAmount : 0,
+        context.currentTime,
+      )
+      // Only the parallel wet path is delayed; the existing dry path stays unchanged.
+      inputAnalyser.connect(echoDelay)
+      echoDelay.connect(echoFeedback)
+      echoFeedback.connect(echoDelay)
+      echoDelay.connect(echoGainNode)
+      echoGainNode.connect(gainNode)
       gainNode.gain.linearRampToValueAtTime(this.snapshot.gain, context.currentTime + 0.015)
 
       this.stream = stream
       this.source = source
       this.gainNode = gainNode
+      this.echoGainNode = echoGainNode
+      this.echoNodes = echoNodes
       this.inputAnalyser = inputAnalyser
       this.outputAnalyser = outputAnalyser
       this.mediaDevices = mediaDevices
@@ -273,7 +331,7 @@ export class MicrophoneMonitorController {
       this.startMeter()
     } catch (reason) {
       if (this.context === context) this.context = undefined
-      await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser)
+      await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser, echoNodes)
       if (operation !== this.generation) return
       const classified = classifyMicrophoneError(reason)
       this.update({
@@ -336,6 +394,7 @@ export class MicrophoneMonitorController {
     const context = this.context
     const source = this.source
     const gainNode = this.gainNode
+    const echoNodes = this.echoNodes
     const inputAnalyser = this.inputAnalyser
     const outputAnalyser = this.outputAnalyser
     if (this.meterHandle !== undefined) this.dependencies.cancelMeter(this.meterHandle)
@@ -352,6 +411,8 @@ export class MicrophoneMonitorController {
     this.context = undefined
     this.source = undefined
     this.gainNode = undefined
+    this.echoGainNode = undefined
+    this.echoNodes = []
     this.inputAnalyser = undefined
     this.outputAnalyser = undefined
     this.mediaDevices = undefined
@@ -360,7 +421,7 @@ export class MicrophoneMonitorController {
     this.contextStateHandler = undefined
     this.deviceChangeHandler = undefined
     this.trackEndHandlers.clear()
-    await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser)
+    await this.releaseLocal(stream, context, source, gainNode, inputAnalyser, outputAnalyser, echoNodes)
   }
 
   private async releaseLocal(
@@ -370,6 +431,7 @@ export class MicrophoneMonitorController {
     gainNode?: GainNode,
     inputAnalyser?: AnalyserNode,
     outputAnalyser?: AnalyserNode,
+    echoNodes: AudioNode[] = [],
   ) {
     try {
       if (gainNode && context) gainNode.gain.setValueAtTime(0, context.currentTime)
@@ -378,6 +440,9 @@ export class MicrophoneMonitorController {
     try { inputAnalyser?.disconnect() } catch {}
     try { gainNode?.disconnect() } catch {}
     try { outputAnalyser?.disconnect() } catch {}
+    for (const node of echoNodes) {
+      try { node.disconnect() } catch {}
+    }
     for (const track of stream?.getTracks() ?? []) {
       try { track.stop() } catch {}
     }

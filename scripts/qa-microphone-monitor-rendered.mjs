@@ -27,6 +27,7 @@ try {
   await rm(output, { recursive: true, force: true })
   await mkdir(profile, { recursive: true })
   await verifyLocalElectronEntry(executable, entry)
+  process.env.KARAOKE_AUTOMATION_PIPE = `\\\\.\\pipe\\karaoke-studio-mic-rendered-${process.pid}`
   child = spawn(executable, [entry, `--user-data-dir=${profile}`, '--enable-private-automation'], {
     cwd: path.dirname(executable),
     stdio: 'ignore',
@@ -43,17 +44,30 @@ try {
   if (snapshot.ariaLabel !== 'Turn microphone monitor on') {
     throw new Error(`Unexpected microphone label: ${snapshot.ariaLabel}`)
   }
-  const first = await sendCommand({
+  const group = await sendCommand({
     action: 'ui',
     uiAction: 'exists',
-    selector: '.player-output-controls > .mic-monitor:first-child',
+    selector: '.mic-button-group[role="group"] > [data-testid="mic-echo-toggle"]:nth-child(2)',
   })
-  const second = await sendCommand({
+  const settings = await sendCommand({
     action: 'ui',
     uiAction: 'exists',
-    selector: '.player-output-controls > .volume:nth-child(2)',
+    selector: '.mic-button-group > [data-testid="audio-controls-toggle"]:nth-child(3):last-child',
   })
-  if (!first.exists || !second.exists) throw new Error('Microphone control is not immediately beside volume.')
+  if (!group.exists || !settings.exists) throw new Error('Audio controls are not a compact three-button group.')
+  const panelOpen = async () => (await sendCommand({
+    action: 'ui',
+    uiAction: 'exists',
+    selector: '#audio-controls-panel:popover-open',
+  })).exists
+  const togglePanel = () => sendCommand({
+    action: 'ui',
+    uiAction: 'click',
+    selector: '[data-testid="audio-controls-toggle"]',
+  })
+  if (await panelOpen()) throw new Error('Audio settings must start collapsed.')
+  await togglePanel()
+  if (!await panelOpen()) throw new Error('Audio settings button did not open the panel.')
   const level = await sendCommand({
     action: 'ui',
     uiAction: 'snapshot',
@@ -61,6 +75,39 @@ try {
   })
   if (level.value !== '2' || level.min !== '0' || level.max !== '4' || level.step !== '0.05') {
     throw new Error(`Unexpected microphone level control: ${JSON.stringify(level)}`)
+  }
+  const echoState = () => sendCommand({
+    action: 'ui',
+    uiAction: 'snapshot',
+    selector: '[data-testid="mic-monitor-state"]',
+  })
+  const echoToggle = () => sendCommand({
+    action: 'ui',
+    uiAction: 'click',
+    selector: '[data-testid="mic-echo-toggle"]',
+  })
+  if ((await echoState()).dataset?.echoEnabled !== 'false') throw new Error('Echo must default to off.')
+  const echoAmount = await sendCommand({
+    action: 'ui',
+    uiAction: 'snapshot',
+    selector: '[data-testid="mic-echo-amount"]',
+  })
+  if (!echoAmount.disabled) throw new Error('Echo amount must be disabled while echo is off.')
+  await echoToggle()
+  await sendCommand({
+    action: 'ui',
+    uiAction: 'set-value',
+    selector: '[data-testid="mic-echo-amount"]',
+    uiValue: '0.4',
+  })
+  if ((await echoState()).dataset?.echoEnabled !== 'true'
+    || (await echoState()).dataset?.echoAmount !== '0.400') {
+    throw new Error('Echo toggle or amount did not update renderer state.')
+  }
+  await echoToggle()
+  const echoOff = await echoState()
+  if (echoOff.dataset?.echoEnabled !== 'false' || echoOff.dataset?.echoAmount !== '0.400') {
+    throw new Error('Echo bypass did not preserve the selected amount.')
   }
   await sendCommand({
     action: 'ui',
@@ -82,6 +129,33 @@ try {
     selector: '[data-testid="mic-monitor-level"]',
     uiValue: '2',
   })
+  await sendCommand({
+    action: 'ui',
+    uiAction: 'set-value',
+    selector: '[data-testid="player-volume"]',
+    uiValue: '0.6',
+  })
+  const expandedCapture = await sendCommand({ action: 'screenshot' })
+  await copyFile(expandedCapture.path, path.join(output, 'audio-controls-expanded.png'))
+  await sendCommand({
+    action: 'ui',
+    uiAction: 'click',
+    selector: '.audio-controls-heading button',
+  })
+  if (await panelOpen()) throw new Error('Close did not collapse audio settings.')
+  await togglePanel()
+  const restoredVolume = await sendCommand({
+    action: 'ui',
+    uiAction: 'snapshot',
+    selector: '[data-testid="player-volume"]',
+  })
+  const restored = await echoState()
+  if (restoredVolume.value !== '0.6' || restored.dataset?.echoAmount !== '0.400'
+    || restored.dataset?.monitorGain !== '2.000' || restored.dataset?.echoEnabled !== 'false') {
+    throw new Error('Collapsing audio settings changed the audio settings.')
+  }
+  await togglePanel()
+  if (await panelOpen()) throw new Error('Settings button did not toggle the panel closed.')
   const capture = await sendCommand({ action: 'screenshot' })
   const screenshot = path.join(output, 'microphone-monitor-off.png')
   await copyFile(capture.path, screenshot)
@@ -90,7 +164,7 @@ try {
   if (diagnostics.rendererErrorCount !== 0) {
     throw new Error(`Renderer diagnostics contain ${diagnostics.rendererErrorCount} errors.`)
   }
-  console.log(`PASS rendered microphone monitor: accessible 0–4 level, 2x default, adjacent placement, screenshot ${screenshot}`)
+  console.log(`PASS rendered audio controls: compact group, collapsed panel, adjustable levels/echo, preserved settings, screenshot ${screenshot}`)
 } finally {
   if (child && child.exitCode === null) {
     child.kill()

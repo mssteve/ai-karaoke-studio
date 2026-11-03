@@ -77,6 +77,11 @@ try {
   }
   await sendCommand({
     action: 'ui',
+    uiAction: 'click',
+    selector: '[data-testid="audio-controls-toggle"]',
+  })
+  await sendCommand({
+    action: 'ui',
     uiAction: 'set-value',
     selector: '[data-testid="player-volume"]',
     uiValue: '0',

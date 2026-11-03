@@ -78,6 +78,8 @@ import {
 import { getModeSource, usePlaybackController, type AudioMode } from './usePlaybackController'
 import { useMicrophoneMonitor } from './useMicrophoneMonitor'
 import {
+  ECHO_AMOUNT_STEP,
+  MAX_ECHO_AMOUNT,
   MAX_MONITOR_GAIN,
   MIN_MONITOR_GAIN,
   MONITOR_GAIN_STEP,
@@ -1689,62 +1691,106 @@ function App() {
             data-output-rms={microphone.telemetry.outputRms?.toFixed(6)}
             data-output-peak={microphone.telemetry.outputPeak?.toFixed(6)}
             data-monitor-gain={microphone.gain.toFixed(3)}
+            data-echo-enabled={String(microphone.echoEnabled)}
+            data-echo-amount={microphone.echoAmount.toFixed(3)}
             data-output-too-hot={String(microphone.telemetry.outputTooHot ?? false)}
             data-output-clipping={String(microphone.telemetry.outputClipping ?? false)}
             data-output-device={microphone.telemetry.outputDevice}>
-            <button type="button" data-testid="mic-monitor-toggle" aria-label={t(microphoneLabel)}
-              title={`${microphone.error ? t(microphone.error) : t(microphoneLabel)}. ${t('Wired headphones recommended. Monitor gain is independent of song volume and uses the system default output.')}`}
-              aria-pressed={microphone.state === 'on'} onClick={toggleMicrophoneMonitor}>
-              {microphone.state === 'requesting'
-                ? <LoaderCircle className="spin" size={17} />
-                : <Mic2 size={17} />}
-            </button>
-            <span role={microphone.state === 'error' ? 'alert' : 'status'}>
-              {microphone.state === 'off' && t('Mic off')}
-              {microphone.state === 'requesting' && t('Requesting mic…')}
-              {microphone.state === 'on' && <>{t(microphoneStatus)}
-                <span className="mic-meter" aria-label={t(`Microphone level ${Math.round(microphoneLevel * 100)} percent`)}>
-                  <span style={{ transform: `scaleX(${microphoneLevel})` }} />
-                </span>
-                <small data-testid="mic-monitor-input">
-                  {microphone.telemetry.signalDetected ? t('Input detected') : t('Input waiting')}
-                </small>
-                <span className={`mic-meter output ${microphone.telemetry.outputTooHot ? 'hot' : ''}`}
-                  aria-label={t(`Monitor output level ${Math.round(monitorOutputLevel * 100)} percent`)}>
-                  <span style={{ transform: `scaleX(${monitorOutputLevel})` }} />
-                </span>
-                <small data-testid="mic-monitor-output">
-                  {t(`Monitor out ${monitorOutputDb}`)}
-                </small>
-                {monitorLatencyMs !== undefined && <small data-testid="mic-monitor-latency">
-                  {t(`${monitorLatencyMs} ms output estimate`)}
-                </small>}
-                <small data-testid="mic-monitor-device">{t('Default output · check Windows if silent')}</small>
-                {microphone.telemetry.outputClipping && <small className="mic-warning" role="alert"
-                  data-testid="mic-monitor-clipping">{t('Clipping — lower Mic monitor level')}</small>}
-                {!microphone.telemetry.outputClipping && microphone.telemetry.outputTooHot
-                  && <small className="mic-warning" role="alert" data-testid="mic-monitor-too-hot">
-                    {t('Output too hot — lower level')}
-                  </small>}
-                {noMicrophoneInput && <small data-testid="mic-monitor-no-input">
-                  {t('Check mic mute/input device')}
-                </small>}</>}
-              {microphone.state === 'error' && t(microphoneErrorLabel)}
+            <div className="mic-button-group" role="group" aria-label={t('Audio controls')}>
+              <button type="button" className={`mic-toggle ${microphone.telemetry.outputTooHot ? 'warning' : ''}`}
+                data-testid="mic-monitor-toggle" aria-label={t(microphoneLabel)}
+                title={`${microphone.error ? t(microphone.error) : t(microphoneLabel)}. ${microphone.telemetry.outputTooHot ? `${t('Output too hot — lower level')}. ` : ''}${t('Wired headphones recommended. Monitor gain is independent of song volume and uses the system default output.')}`}
+                aria-pressed={microphone.state === 'on'} onClick={toggleMicrophoneMonitor}>
+                {microphone.state === 'requesting'
+                  ? <LoaderCircle className="spin" size={17} />
+                  : <Mic2 size={17} />}
+              </button>
+              <button type="button" className="echo-toggle" data-testid="mic-echo-toggle"
+                aria-label={t('Microphone echo')} aria-pressed={microphone.echoEnabled}
+                title={t('Microphone echo')} onClick={() => microphone.setEchoEnabled(!microphone.echoEnabled)}>
+                <AudioLines size={17} />
+              </button>
+              <button type="button" data-testid="audio-controls-toggle" popoverTarget="audio-controls-panel"
+                aria-label={t('Audio settings')} aria-haspopup="dialog" title={t('Audio settings')}>
+                <SlidersHorizontal size={17} />
+              </button>
+            </div>
+            <span className="sr-only" role={microphone.state === 'error' || microphone.telemetry.outputTooHot ? 'alert' : 'status'}>
+              {microphone.state === 'error' ? t(microphoneErrorLabel)
+                : microphone.telemetry.outputClipping ? t('Clipping — lower Mic monitor level')
+                  : microphone.telemetry.outputTooHot ? t('Output too hot — lower level')
+                    : microphone.state === 'on' ? t(microphoneStatus)
+                      : microphone.state === 'requesting' ? t('Requesting mic…') : t('Mic off')}
             </span>
-            <label className="mic-level" htmlFor="mic-monitor-level">
-              <span>{t('Mic monitor level')} <output>{t(monitorGainLabel)}</output></span>
-              <input id="mic-monitor-level" type="range" min={MIN_MONITOR_GAIN} max={MAX_MONITOR_GAIN}
-                step={MONITOR_GAIN_STEP} value={microphone.gain} data-testid="mic-monitor-level"
-                aria-label={t(`Mic monitor level ${monitorGainLabel}`)}
-                onChange={(event) => microphone.setGain(Number(event.target.value))} />
-              <small>{microphone.gain > 2
-                ? t('High boost: use wired headphones; lower it if feedback or clipping starts.')
-                : t('Independent of song volume.')}</small>
-            </label>
+            <div id="audio-controls-panel" className="audio-controls-panel" popover="auto"
+              role="dialog" aria-labelledby="audio-controls-title" data-testid="audio-controls-panel">
+              <div className="audio-controls-heading">
+                <strong id="audio-controls-title">{t('Audio settings')}</strong>
+                <button type="button" popoverTarget="audio-controls-panel" popoverTargetAction="hide"
+                  aria-label={t('Close')}><X size={16} /></button>
+              </div>
+              <span className="mic-status">
+                {microphone.state === 'off' && t('Mic off')}
+                {microphone.state === 'requesting' && t('Requesting mic…')}
+                {microphone.state === 'on' && <>{t(microphoneStatus)}
+                  <span className="mic-meter" aria-label={t(`Microphone level ${Math.round(microphoneLevel * 100)} percent`)}>
+                    <span style={{ transform: `scaleX(${microphoneLevel})` }} />
+                  </span>
+                  <small data-testid="mic-monitor-input">
+                    {microphone.telemetry.signalDetected ? t('Input detected') : t('Input waiting')}
+                  </small>
+                  <span className={`mic-meter output ${microphone.telemetry.outputTooHot ? 'hot' : ''}`}
+                    aria-label={t(`Monitor output level ${Math.round(monitorOutputLevel * 100)} percent`)}>
+                    <span style={{ transform: `scaleX(${monitorOutputLevel})` }} />
+                  </span>
+                  <small data-testid="mic-monitor-output">
+                    {t(`Monitor out ${monitorOutputDb}`)}
+                  </small>
+                  {monitorLatencyMs !== undefined && <small data-testid="mic-monitor-latency">
+                    {t(`${monitorLatencyMs} ms output estimate`)}
+                  </small>}
+                  <small data-testid="mic-monitor-device">{t('Default output · check Windows if silent')}</small>
+                  {microphone.telemetry.outputClipping && <small className="mic-warning" role="alert"
+                    data-testid="mic-monitor-clipping">{t('Clipping — lower Mic monitor level')}</small>}
+                  {!microphone.telemetry.outputClipping && microphone.telemetry.outputTooHot
+                    && <small className="mic-warning" role="alert" data-testid="mic-monitor-too-hot">
+                      {t('Output too hot — lower level')}
+                    </small>}
+                  {noMicrophoneInput && <small data-testid="mic-monitor-no-input">
+                    {t('Check mic mute/input device')}
+                  </small>}</>}
+                {microphone.state === 'error' && t(microphoneErrorLabel)}
+              </span>
+              <div className="mic-controls">
+                <label className="mic-level" htmlFor="mic-monitor-level">
+                  <span>{t('Mic monitor level')} <output>{t(monitorGainLabel)}</output></span>
+                  <input id="mic-monitor-level" type="range" min={MIN_MONITOR_GAIN} max={MAX_MONITOR_GAIN}
+                    step={MONITOR_GAIN_STEP} value={microphone.gain} data-testid="mic-monitor-level"
+                    aria-label={t(`Mic monitor level ${monitorGainLabel}`)}
+                    onChange={(event) => microphone.setGain(Number(event.target.value))} />
+                  <small>{microphone.gain > 2
+                    ? t('High boost: use wired headphones; lower it if feedback or clipping starts.')
+                    : t('Independent of song volume.')}</small>
+                </label>
+                <label className="mic-level" htmlFor="mic-echo-amount">
+                  <span>{t('Echo amount')} <output>{Math.round(microphone.echoAmount * 100)}%</output></span>
+                  <input id="mic-echo-amount" type="range" min="0" max={MAX_ECHO_AMOUNT} step={ECHO_AMOUNT_STEP}
+                    value={microphone.echoAmount} disabled={!microphone.echoEnabled}
+                    data-testid="mic-echo-amount" aria-label={t('Echo amount')}
+                    title={t('Echo affects repeats only; your direct voice is not delayed.')}
+                    onChange={(event) => microphone.setEchoAmount(Number(event.target.value))} />
+                  <small>{t('Echo affects repeats only; your direct voice is not delayed.')}</small>
+                </label>
+                <label className="mic-level" htmlFor="player-volume">
+                  <span><span><Volume2 size={13} /> {t('Song volume')}</span>
+                    <output>{Math.round(volume * 100)}%</output></span>
+                  <input id="player-volume" type="range" min="0" max="1" step="0.01"
+                    data-testid="player-volume" value={volume} aria-label={t('Volume')}
+                    onChange={(event) => setVolume(Number(event.target.value))} />
+                </label>
+              </div>
+            </div>
           </div>
-          <div className="volume"><Volume2 size={17} /><input type="range" min="0" max="1" step="0.01"
-            data-testid="player-volume" value={volume} aria-label={t('Volume')}
-            onChange={(event) => setVolume(Number(event.target.value))} /></div>
         </div>
       </footer>
 

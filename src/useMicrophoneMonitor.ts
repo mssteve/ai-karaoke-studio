@@ -32,5 +32,7 @@ export function useMicrophoneMonitor() {
     enable: () => controller.enable(),
     disable: () => controller.disable(),
     setGain: (gain: number) => controller.setGain(gain),
+    setEchoEnabled: (enabled: boolean) => controller.setEchoEnabled(enabled),
+    setEchoAmount: (amount: number) => controller.setEchoAmount(amount),
   }
 }

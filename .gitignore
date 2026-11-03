@@ -30,6 +30,7 @@ out/
 /src/types.js.map
 
 # QA output, temporary profiles, and coverage
+/qa/
 scripts/qa-artifacts/
 qa-results/
 test-results/

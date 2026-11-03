@@ -73,6 +73,10 @@ class FakeGain extends FakeNode {
   gain = new FakeAudioParam()
 }
 
+class FakeDelay extends FakeNode {
+  delayTime = new FakeAudioParam()
+}
+
 class FakeAnalyser extends FakeNode {
   fftSize = 32
   smoothingTimeConstant = 0
@@ -93,6 +97,8 @@ class FakeContext extends EventTarget {
   destination = new FakeNode()
   source = new FakeNode()
   gain = new FakeGain()
+  gains = []
+  delay = new FakeDelay()
   analysers = [new FakeAnalyser(), new FakeAnalyser()]
   createdAnalysers = []
   resumes = 0
@@ -100,7 +106,12 @@ class FakeContext extends EventTarget {
   streams = []
   async resume() { this.resumes += 1; this.state = 'running' }
   createMediaStreamSource(stream) { this.streams.push(stream); return this.source }
-  createGain() { return this.gain }
+  createGain() {
+    const gain = this.gains.length ? new FakeGain() : this.gain
+    this.gains.push(gain)
+    return gain
+  }
+  createDelay() { return this.delay }
   createAnalyser() {
     const analyser = this.analysers.shift()
     this.createdAnalysers.push(analyser)
@@ -193,7 +204,8 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   equal(contexts[0].resumes, 1, 'a suspended context is resumed')
   const [inputAnalyser, outputAnalyser] = contexts[0].createdAnalysers
   equal(contexts[0].source.connected, [inputAnalyser], 'source connects to the zero-buffer input analyser')
-  equal(inputAnalyser.connected, [contexts[0].gain], 'input analyser connects to the monitor gain')
+  equal(inputAnalyser.connected, [contexts[0].gain, contexts[0].delay],
+    'dry input still connects directly to monitor gain beside the separate echo branch')
   equal(contexts[0].gain.connected, [outputAnalyser], 'gain connects to the post-gain analyser')
   equal(outputAnalyser.connected, [contexts[0].destination], 'post-gain analyser connects to destination')
   equal(controller.getSnapshot().state, 'on', 'permission success reaches on')
@@ -253,6 +265,9 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   await controller.disable()
   equal(tracks.map((track) => track.stopped), [1, 1], 'disable stops every stream track')
   equal(contexts[0].closes, 1, 'disable closes the context')
+  equal(contexts[0].delay.disconnected, 1, 'disable disconnects the echo delay')
+  equal(contexts[0].gains.slice(1).map((node) => node.disconnected), [1, 1],
+    'disable disconnects feedback and wet gains, including the feedback loop')
   equal(cancelledMeters.length, 1, 'disable cancels analyser polling')
   equal(inputAnalyser.disconnected, 1, 'disable disconnects the input analyser')
   equal(outputAnalyser.disconnected, 1, 'disable disconnects the output analyser')
@@ -268,6 +283,65 @@ equal(classifyMicrophoneError(new DOMException('', 'NotFoundError')).code, 'no-d
   equal(contexts.length, 2, 're-enable creates a fresh context')
   await controller.disable()
   equal(secondTrack.stopped, 1, 'repeated toggles release each fresh stream')
+}
+
+{
+  const { controller, mediaDevices, contexts } = createHarness()
+  equal(controller.getSnapshot().echoEnabled, false, 'echo starts off')
+  controller.setEchoEnabled(true)
+  controller.setEchoAmount(0.35)
+  mediaDevices.responses.push(new FakeStream())
+  await controller.enable()
+  const context = contexts[0]
+  const [, feedback, wet] = context.gains
+  equal(wet.gain.calls.at(-1), ['set', 0.35, context.currentTime],
+    'echo settings selected before mic activation reach the graph')
+  equal(context.delay.connected, [feedback, wet], 'delayed voice feeds repeats and the wet mix')
+  equal(feedback.connected, [context.delay], 'bounded feedback recirculates only delayed voice')
+  equal(wet.connected, [context.gain], 'echo passes through master mic gain so mute includes repeats')
+
+  controller.setEchoEnabled(false)
+  equal(wet.gain.calls.at(-1), ['target', 0, context.currentTime, 0.008],
+    'switching echo off smoothly silences only the wet branch')
+  equal(controller.getSnapshot().state, 'on', 'echo toggle does not disable the live microphone')
+  controller.setEchoAmount(0.4)
+  equal(wet.gain.calls.at(-1)[1], 0, 'adjusting amount while bypassed does not enable echo')
+  controller.setEchoEnabled(true)
+  equal(wet.gain.calls.at(-1)[1], 0.4, 'switching echo back on restores the selected amount')
+  controller.setEchoAmount(99)
+  equal(wet.gain.calls.at(-1)[1], 0.5, 'wet gain is bounded even for out-of-range input')
+  controller.setEchoAmount(-1)
+  equal(wet.gain.calls.at(-1)[1], 0, 'negative echo amount is clamped to silence')
+  controller.setEchoAmount(Number.NaN)
+  equal(wet.gain.calls.at(-1)[1], 0.25, 'nonfinite echo amount falls back to a safe default')
+  equal(contexts.length, 1, 'live echo changes never recreate the audio context')
+  equal(mediaDevices.requests.length, 1, 'live echo changes never reacquire the microphone')
+  await controller.disable()
+  mediaDevices.responses.push(new FakeStream())
+  await controller.enable()
+  equal(contexts[1].gains[2].gain.calls.at(-1)[1], 0.25,
+    'echo preferences survive mic toggles within the session')
+  await controller.disable()
+}
+
+{
+  const { controller, mediaDevices, contexts } = createHarness()
+  const track = new FakeTrack()
+  mediaDevices.responses.push(new FakeStream([track]))
+  const enabling = controller.enable()
+  const context = contexts[0]
+  const createGain = context.createGain.bind(context)
+  let createdGains = 0
+  context.createGain = () => {
+    if (++createdGains === 3) throw new Error('Echo graph creation failed')
+    return createGain()
+  }
+  await enabling
+  equal(controller.getSnapshot().state, 'error', 'partial echo graph failure reports an error')
+  equal(track.stopped, 1, 'partial echo graph failure releases the microphone')
+  equal(context.delay.disconnected, 1, 'partial echo graph failure disconnects its allocated delay')
+  equal(context.gains[1].disconnected, 1, 'partial echo graph failure disconnects its allocated feedback gain')
+  equal(context.closes, 1, 'partial echo graph failure closes its context')
 }
 
 {
