@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import appIcon from '../build/icon.svg'
 import { karaokeApi } from './api'
 import type {
   AppSettings,
@@ -1220,7 +1221,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="titlebar">
-        <div className="brand-mark"><AudioLines size={18} /></div>
+        <img className="brand-mark" src={appIcon} width={27} height={27} alt="" draggable={false} />
         <span className="brand-name">Karaoke Studio</span>
         <span className="privacy-pill"><HardDrive size={12} /> {t('Private · On-device AI')}</span>
         <div className="titlebar-actions">
