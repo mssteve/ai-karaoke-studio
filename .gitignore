@@ -29,16 +29,16 @@ out/
 /src/types.js
 /src/types.js.map
 
-# QA output, temporary profiles, and coverage
-/qa/
-scripts/qa-artifacts/
-qa-results/
+# QA files and directories, case-insensitive, at any depth.
+# Already tracked files remain tracked; see AGENTS.md.
+*[qQ][aA]*
+
+# Temporary profiles and coverage
 test-results/
 coverage/
 .nyc_output/
 .profiles/
 .electron-profile/
-qa-profile*/
 test-profile*/
 
 # Local AI model and runtime downloads

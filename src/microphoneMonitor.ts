@@ -42,6 +42,7 @@ export interface MicrophoneMonitorSnapshot {
   errorCode?: MicrophoneMonitorErrorCode
   error?: string
   gain: number
+  muted: boolean
   echoEnabled: boolean
   echoAmount: number
   telemetry: MicrophoneMonitorTelemetry
@@ -132,6 +133,7 @@ export class MicrophoneMonitorController {
   private snapshot: MicrophoneMonitorSnapshot = {
     state: 'off',
     gain: DEFAULT_MONITOR_GAIN,
+    muted: false,
     echoEnabled: false,
     echoAmount: DEFAULT_ECHO_AMOUNT,
     telemetry: {},
@@ -171,10 +173,22 @@ export class MicrophoneMonitorController {
     if (gain === this.snapshot.gain) return
     const context = this.context
     const gainNode = this.gainNode
-    if (context && gainNode) {
+    if (context && gainNode && !this.snapshot.muted) {
       gainNode.gain.setTargetAtTime(gain, context.currentTime, 0.008)
     }
     this.update({ gain })
+  }
+
+  setMuted(muted: boolean) {
+    if (muted === this.snapshot.muted) return
+    const context = this.context
+    const gainNode = this.gainNode
+    if (context && gainNode) {
+      gainNode.gain.cancelScheduledValues(context.currentTime)
+      if (muted) gainNode.gain.setValueAtTime(0, context.currentTime)
+      else gainNode.gain.setTargetAtTime(this.snapshot.gain, context.currentTime, 0.008)
+    }
+    this.update({ muted })
   }
 
   setEchoEnabled(echoEnabled: boolean) {
@@ -282,7 +296,7 @@ export class MicrophoneMonitorController {
       echoFeedback.connect(echoDelay)
       echoDelay.connect(echoGainNode)
       echoGainNode.connect(gainNode)
-      gainNode.gain.linearRampToValueAtTime(this.snapshot.gain, context.currentTime + 0.015)
+      gainNode.gain.linearRampToValueAtTime(this.snapshot.muted ? 0 : this.snapshot.gain, context.currentTime + 0.015)
 
       this.stream = stream
       this.source = source

@@ -23,6 +23,7 @@ import {
   Sparkles,
   Trash2,
   Volume2,
+  VolumeX,
   WandSparkles,
   X,
 } from 'lucide-react'
@@ -238,6 +239,11 @@ function App() {
   const playback = usePlaybackController({ selected, mode, onError: showError })
   const microphone = useMicrophoneMonitor()
   const { audioRef, currentTime, duration, status: playbackStatus, isPlaying } = playback
+  const toggleAudioMute = () => {
+    const muted = !microphone.muted
+    if (audioRef.current) audioRef.current.muted = muted
+    microphone.setMuted(muted)
+  }
   const filteredSongs = useMemo(() => {
     const term = query.trim().toLowerCase()
     if (!term) return songs
@@ -621,7 +627,7 @@ function App() {
   const monitorOutputLevel = Math.min(1, (microphone.telemetry.outputPeak ?? 0) / 0.85)
   const noMicrophoneInput = microphone.state === 'on'
     && (microphone.telemetry.silenceDurationMs ?? 0) >= 1_500
-  const microphoneStatus = microphone.state === 'on' && microphone.gain === 0
+  const microphoneStatus = microphone.state === 'on' && (microphone.gain === 0 || microphone.muted)
     ? 'Mic live — monitor muted'
     : noMicrophoneInput
     ? 'Mic live — no input detected'
@@ -1654,7 +1660,7 @@ function App() {
       </main>
 
       <footer className="player">
-        <audio ref={audioRef} />
+        <audio ref={audioRef} muted={microphone.muted} />
         <div className="player-track"><div className="mini-art"><Music2 size={17} /></div><div>
           <strong>{selected?.title ?? t('No song selected')}</strong>
           <span>{selected ? `${t(modeLabels[mode])} · ${selected.artist}` : t('Add music to begin')}</span></div></div>
@@ -1692,6 +1698,7 @@ function App() {
             data-output-rms={microphone.telemetry.outputRms?.toFixed(6)}
             data-output-peak={microphone.telemetry.outputPeak?.toFixed(6)}
             data-monitor-gain={microphone.gain.toFixed(3)}
+            data-audio-muted={String(microphone.muted)}
             data-echo-enabled={String(microphone.echoEnabled)}
             data-echo-amount={microphone.echoAmount.toFixed(3)}
             data-output-too-hot={String(microphone.telemetry.outputTooHot ?? false)}
@@ -1792,6 +1799,13 @@ function App() {
               </div>
             </div>
           </div>
+          <button type="button" className={`audio-mute ${microphone.muted ? 'muted' : ''}`}
+            data-testid="audio-mute-toggle" aria-pressed={microphone.muted}
+            aria-label={t(microphone.muted ? 'Unmute all audio' : 'Mute all audio')}
+            title={t(microphone.muted ? 'Unmute all audio' : 'Mute all audio')}
+            onClick={toggleAudioMute}>
+            {microphone.muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
+          </button>
         </div>
       </footer>
 

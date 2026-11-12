@@ -591,6 +591,8 @@ export const frenchCopy: Record<string, string> = {
   'Audio controls': 'Commandes audio',
   'Audio settings': 'Réglages audio',
   'Song volume': 'Volume de la chanson',
+  'Mute all audio': 'Couper tout le son',
+  'Unmute all audio': 'Rétablir tout le son',
   'Microphone echo': 'Écho du micro',
   Echo: 'Écho',
   'Echo amount': 'Niveau de l’écho',

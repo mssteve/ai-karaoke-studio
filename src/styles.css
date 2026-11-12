@@ -320,6 +320,9 @@ h1 { margin: 0; font-size: 27px; letter-spacing: -1px; }
 .timeline { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; flex: 1; gap: 7px; color: #60606a; font-size: 8px; }
 input[type='range'] { width: 100%; height: 3px; accent-color: #9f7aea; cursor: pointer; }
 .player-output-controls { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; }
+.audio-mute { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; color: #aaa4ae; border: 1px solid #34343a; border-radius: 10px; background: #18181c; cursor: pointer; }
+.audio-mute:hover { color: #f4f4f5; background: #232229; }
+.audio-mute.muted { color: #fecaca; border-color: #7f3c45; background: #35191d; }
 .mic-monitor { color: #686871; }
 .mic-button-group { display: flex; padding: 3px; gap: 3px; border: 1px solid #34343a; border-radius: 10px; background: #18181c; }
 .mic-button-group button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: #8a8a94; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
