@@ -8,6 +8,8 @@ source: "earned (Fenster/Hockney incident, test assertion sync violations)"
 
 ## Context
 
+For this repository, root `AGENTS.md` and [test-artifact-hygiene](../test-artifact-hygiene/SKILL.md) take precedence: QA tests and artifacts are local-only under ignored root `qa\`, never committed. Update and run local tests alongside API changes; report their results rather than adding tracked tests to satisfy the generic same-commit guidance below.
+
 When APIs or public interfaces change, tests must be updated in the same commit. When test assertions reference file counts or expected arrays, they must be kept in sync with disk reality. Stale tests block CI for other contributors.
 
 ## Patterns

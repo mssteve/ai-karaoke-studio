@@ -229,7 +229,7 @@ never matched values or surrounding content.
 ## 5. Provenance Completeness
 
 The tracked source set is the exact set produced by `scripts\release.mjs`: `electron`,
-`src`, `scripts` excluding `scripts\qa-artifacts`, `build`, and the listed root metadata.
+`src`, production/shared `scripts`, `build`, and the listed root metadata.
 The before/after aggregate and every per-file SHA-256 must agree. Success requires zero
 missing, extra, or mismatched tracked files. Count the entries and record the aggregate
 SHA-256 in the release result.
@@ -247,14 +247,16 @@ default-off automation, and bind its report to these hashes. Do not substitute
 source-built QA for packaged QA where the release plan requires installed behavior.
 
 For processing recovery changes, the packaged gate must also run the reusable runtime
-failure/restart harness against the exact candidate executable:
+failure/restart harness against the exact candidate executable. The harness is local-only,
+not shipped by Git or npm scripts; if unavailable, report the gate as unexecuted.
+Follow root `AGENTS.md` artifact preflight before running:
 
 ```powershell
-node scripts\qa-processing-failure-runtime.mjs `
+node qa\scripts\qa-processing-failure-runtime.mjs `
   "<installed-app>\Karaoke Studio.exe" `
   "C:\git\karaoke-player" `
-  "scripts\qa-artifacts\fixtures\qa-tone.mp3" `
-  "scripts\qa-artifacts\<candidate-run>\processing-failure-runtime"
+  "qa\fixtures\media\qa-tone.mp3" `
+  "qa\runs\<candidate-run>\processing-failure-runtime"
 ```
 
 Require `APPROVE`, exactly 5/5 cases, and 90 assertions. The harness must launch with

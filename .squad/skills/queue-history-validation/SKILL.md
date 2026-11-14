@@ -17,6 +17,11 @@ default_for:
 Run from `C:\git\karaoke-player`. This validates source-built Electron, not an installed
 package. It must produce rendered screenshots and end-to-end private-pipe evidence.
 
+Root `AGENTS.md` and `.copilot\skills\test-artifact-hygiene\SKILL.md` take precedence.
+The runner and seed generators are local-only under ignored `qa\scripts\`; a fresh
+checkout does not include them. Preflight every fixture/output path before running,
+and report unavailable local tests as unexecuted, never passed.
+
 **Mandatory default:** future agents working on Queue, History, playlist transport,
 Previous/Next, Queue completion/Next archival, playlist plus menus, or History persistence
 must read and apply this skill before approval. This file is canonical; prior reports are
@@ -31,7 +36,7 @@ Required:
   `scripts\control.mjs`.
 - No other Karaoke Studio instance using `\\.\pipe\karaoke-studio-control`.
 - The default generated seed is
-  `scripts\qa-artifacts\queue-history-seed\profile`.
+  `qa\fixtures\queue-history\profile`.
 - Its first two `library.json` songs must have readable local `sourcePath` files. The
   wrapper hashes these fixture files before/after.
 
@@ -42,7 +47,7 @@ Safety rules:
 - The focused harness removes its output directory before use, copies the seed to
   `<output>\profile`, and changes only that copy.
 - The wrapper refuses to overwrite
-  `scripts\qa-artifacts\queue-history-focused-2026-09-18`.
+  `qa\artifacts\queue-history-focused-2026-09-18`.
 
 ## 2. Exact Reproducible Entry Point
 
@@ -50,33 +55,34 @@ Use a unique output path:
 
 ```powershell
 Set-Location C:\git\karaoke-player
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\qa-queue-history-run.ps1 `
-  -Output scripts\qa-artifacts\queue-history-focused-rerun
+powershell -NoProfile -ExecutionPolicy Bypass -File qa\scripts\qa-queue-history-run.ps1 `
+  -Output qa\runs\queue-history-focused-rerun
 ```
 
-The wrapper executes these exact build/harness commands:
+The wrapper uses existing matching built artifacts and executes this harness command:
 
 ```powershell
-npm run build
-node scripts\qa-queue-history.mjs `
+node qa\scripts\qa-queue-history.mjs `
   node_modules\electron\dist\electron.exe `
   dist-electron\main.js `
-  scripts\qa-artifacts\queue-history-seed\profile `
-  scripts\qa-artifacts\queue-history-focused-rerun
+  qa\fixtures\queue-history\profile `
+  qa\runs\queue-history-focused-rerun
 ```
 
-Use `-SkipBuild` only when the same unchanged source has already completed `npm run build`
-in the current review. Release approval should not skip the build.
+The wrapper no longer builds or accepts `-SkipBuild`. Record the successful matching
+build separately; if unavailable or stale, stop rather than claim source-built coverage.
+Any build performed specifically for QA must contain all generated output under root
+`qa\` and use the corresponding executable/entry paths with the Node harness directly.
 
 ## 3. Fixture and Temporary User Data
 
-If the default seed is absent, the wrapper creates it before building:
+If the default seed is absent, the wrapper creates it:
 
 ```powershell
-node scripts\create-qa-fixtures.mjs scripts\qa-artifacts\queue-history-seed\fixtures
-node scripts\create-queue-history-seed.mjs `
-  scripts\qa-artifacts\queue-history-seed\fixtures `
-  scripts\qa-artifacts\queue-history-seed\profile
+node qa\scripts\create-qa-fixtures.mjs qa\fixtures\queue-history\media
+node qa\scripts\create-queue-history-seed.mjs `
+  qa\fixtures\queue-history\media `
+  qa\fixtures\queue-history\profile
 ```
 
 `create-qa-fixtures.mjs` creates local `qa-tone.mp3` and `qa-video.mp4` files using the
@@ -87,7 +93,7 @@ History validation uses Original playback only, so AI processing is neither need
 allowed as a prerequisite. The generated seed does not reference `%APPDATA%`, a music
 library, or retained historical evidence.
 
-`scripts\qa-queue-history.mjs` performs this deterministic setup:
+`qa\scripts\qa-queue-history.mjs` performs this deterministic setup:
 
 1. Deletes `<output>` recursively.
 2. Creates `<output>`.
@@ -298,7 +304,7 @@ Report case: `renderer-clean`.
 
 ## 6. Protected-History Source and Compiled Checks
 
-The wrapper runs these checks after build and fails if any are absent:
+The wrapper runs these checks against the existing build and fails if any are absent:
 
 - `electron\main.ts` rejects `playlist.kind === 'history'` from ordinary add.
 - `dist-electron\main.js` contains the compiled rejection message
@@ -308,7 +314,7 @@ The wrapper runs these checks after build and fails if any are absent:
 - Source and compiled output each contain exactly one `history.entries.unshift` insertion
   site, inside `archiveQueueEntry`.
 
-The directly executable check is part of `scripts\qa-queue-history-run.ps1`; do not replace
+The directly executable check is part of `qa\scripts\qa-queue-history-run.ps1`; do not replace
 it with renderer filtering. Renderer omission of History is not an authorization boundary.
 
 ## 7. Artifacts and Thresholds
@@ -325,9 +331,9 @@ Every focused run must contain:
 Canonical approved evidence:
 
 ```text
-scripts\qa-artifacts\queue-history-focused-2026-09-18\report.json
-scripts\qa-artifacts\queue-history-focused-2026-09-18\plus-menu-rendered.png
-scripts\qa-artifacts\queue-history-focused-2026-09-18\history-navigation.png
+qa\artifacts\queue-history-focused-2026-09-18\report.json
+qa\artifacts\queue-history-focused-2026-09-18\plus-menu-rendered.png
+qa\artifacts\queue-history-focused-2026-09-18\history-navigation.png
 ```
 
 The run remains fully reproducible if those canonical files are deleted: regenerate the
@@ -336,7 +342,7 @@ fresh rendered run.
 
 **PASS requires all of the following:**
 
-- `npm run build` exit code 0.
+- A separately recorded successful matching source build; stale/missing builds fail.
 - Wrapper and Node harness exit code 0.
 - Report verdict exactly `APPROVE`.
 - Exactly 8 cases, each required ID present once and `status: "passed"`.
@@ -378,7 +384,7 @@ manual and must not be reported as automated.
 
 ```powershell
 Set-Location C:\git\karaoke-player
-$profile = (Resolve-Path scripts\qa-artifacts\queue-history-focused-rerun\profile).Path
+$profile = (Resolve-Path qa\runs\queue-history-focused-rerun\profile).Path
 $electron = (Resolve-Path node_modules\electron\dist\electron.exe).Path
 $entry = (Resolve-Path dist-electron\main.js).Path
 $app = Start-Process -FilePath $electron `
@@ -448,10 +454,10 @@ for (let index = 1; index <= 30; index += 1) {
 
 ```powershell
 $top = node scripts\control.mjs screenshot | ConvertFrom-Json
-Copy-Item $top.result.path scripts\qa-artifacts\queue-history-focused-rerun\manual-long-menu-top.png
+Copy-Item $top.result.path qa\runs\queue-history-focused-rerun\manual-long-menu-top.png
 # Scroll the open menu to its bottom in the rendered app.
 $bottom = node scripts\control.mjs screenshot | ConvertFrom-Json
-Copy-Item $bottom.result.path scripts\qa-artifacts\queue-history-focused-rerun\manual-long-menu-bottom.png
+Copy-Item $bottom.result.path qa\runs\queue-history-focused-rerun\manual-long-menu-bottom.png
 ```
 
 5. Require both PNGs non-empty and visually review both extremes. This remains a manual
@@ -464,11 +470,11 @@ Copy-Item $bottom.result.path scripts\qa-artifacts\queue-history-focused-rerun\m
 - Keep approved output intentionally. For a throwaway run:
 
 ```powershell
-Remove-Item scripts\qa-artifacts\queue-history-focused-rerun -Recurse -Force
+Remove-Item qa\runs\queue-history-focused-rerun -Recurse -Force
 ```
 
 - During validation, never modify the seed profile, canonical evidence, imported source
   audio, or `%APPDATA%\karaoke-studio`.
 - If all generated Queue/History fixtures and seed data should be reset, remove only
-  `scripts\qa-artifacts\queue-history-seed`, then rerun the canonical entry point; it
+  `qa\fixtures\queue-history`, then rerun the canonical entry point; it
   deterministically recreates them.

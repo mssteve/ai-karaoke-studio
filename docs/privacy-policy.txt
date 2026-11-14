@@ -1,0 +1,64 @@
+Karaoke Studio Privacy Policy
+Effective date: November 14, 2026
+
+1. About this policy
+
+This policy describes how the Karaoke Studio Windows desktop app handles information. Karaoke Studio works with media you choose and uses local AI processing. You do not need an app account. The app does not upload your songs, lyrics, library, or microphone audio to a developer-operated service or a cloud transcription service.
+
+2. Media, library, and preferences
+
+When you add an MP3 or MP4 file, the app reads that file from its existing location. It saves library information such as the file path, file name or song title, artist field, import date, and processing status. File paths and media content may contain personal information.
+
+Processing creates local audio copies and derived files, including extracted audio, separated stems, enhanced audio, vocal and instrumental versions, and recognized lyrics with timing and language information. Lyrics you type or paste are also saved locally. These files are used to provide playback, karaoke creation, lyric editing, and processing recovery; they are not sent to an online AI service.
+
+The app also saves playlist names and entries, Queue and History entries, the selected playlist and cursor, and interface and recognition-language preferences. These records let you resume using your library after restarting the app.
+
+3. Optional microphone access
+
+The microphone starts off. Turning on Mic requests audio access, subject to your Windows microphone permissions. The app uses live microphone sound for local monitoring through your selected system output, with optional echo and volume controls. It calculates audio-level and device-performance indicators in memory to display meters and help diagnose monitoring problems.
+
+The app does not record microphone audio to a file, save it in your library, transcribe it, or transmit it over the internet. Turn Mic off to stop capture, or close the app. Muting the output or setting monitor volume to zero does not stop microphone capture while Mic remains on. You can also manage microphone access in Windows Settings. The app does not request camera access.
+
+4. Internet connections and third parties
+
+Local processing is not the same as having no internet connections. On first transcription, or when required model files are missing, the app downloads the Whisper speech-recognition model and related configuration from Hugging Face (huggingface.co) and its file-delivery infrastructure. Downloaded files are cached locally for reuse. Once the required files are available, media processing can run offline.
+
+Download providers necessarily receive connection information, including your IP address, the requested model-file address, and normal request metadata. This is a model-file download, not an upload of your media or lyrics. Providers handle those requests under their own privacy policies; see https://huggingface.co/privacy.
+
+Microsoft Store and Windows may separately process installation, update, purchase, device, or diagnostic information under Microsoft's policies and your platform settings. See https://privacy.microsoft.com/privacystatement. The app has no built-in developer-operated update-checking service.
+
+Opening this policy or the project repository in your browser connects to GitHub. GitHub handles website requests and any information you submit there under its own policy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement. This policy page has no added analytics, external fonts, or scripts. Storage providers, backup tools, and synchronization services you use may separately handle files in locations they manage.
+
+5. Diagnostics and support sharing
+
+Karaoke Studio writes troubleshooting logs locally. They can contain timestamps, app version, CPU-resource information, library counts and locations, processing or playback failures, error messages, and technical stack traces. Errors can include file names, full file paths, or other information from the affected operation. Do not assume logs are anonymous.
+
+The Diagnostics button opens the local logs folder; it does not send a report. The app does not include usage analytics, advertising trackers, or automatic crash-report uploads. Support information reaches the maintainer only if you choose to share it, for example through GitHub. Review and redact logs and screenshots before sharing them.
+
+Packaged releases disable the optional local automation interface by default. If explicitly enabled for support or development, its Windows named pipe allows local programs with access to inspect library and playback information, control the app, and save screenshots in the logs folder. Development launches enable this interface. It is not an internet diagnostic server; enable it only when needed and use trusted local software.
+
+6. Storage and security
+
+App-managed data is stored in the Windows user profile's application-data area used by Electron, normally in an app-specific folder under %APPDATA%. Installation type or launch configuration may change the exact location. Use Diagnostics to open the logs folder; its parent is the active app-data folder.
+
+This folder includes library.json, playlists.json, settings.json, processed audio and lyrics in processed, downloaded speech models in ai-models, and diagnostics in logs. Original imported files remain at their existing locations.
+
+The app uses local file storage and operating-system access controls. It does not add its own encryption to media, JSON records, or logs. Other users or software with sufficient access to your Windows profile may be able to read them. Protect your device, account, backups, and any shared storage accordingly.
+
+7. Retention, access, and deletion
+
+Local library records, generated files, playlists, settings, and cached models remain until removed or replaced. The main diagnostic log is reset when it reaches approximately 2 MB; screenshots and other files can remain separately.
+
+You can inspect your app-data files, edit lyrics, and manage playlists in the app. Removing a song from the library removes its library and playlist entries, but does not delete the original media or the generated audio and lyric files left on disk.
+
+For a complete local reset, close the app and delete its active app-data folder after saving anything you want to keep. This removes the local library, playlists, preferences, processed files, models, and logs in that folder; required model files will download again if you use transcription afterward. Delete original media, exported or shared copies, and backups separately if desired. Uninstalling the app should not be relied on to erase these files. The app does not provide secure erasure or control copies held by third parties.
+
+8. Policy changes
+
+This policy may be updated when the app or its information-handling practices change. The revised policy will show a new effective date. Review the current policy when updating the app.
+
+9. Contact
+
+For privacy questions or requests, contact the Karaoke Studio maintainer through the project repository: https://github.com/mssteve/ai-karaoke-studio.
+
+GitHub issues and other public repository posts are public. Do not post personal media, unredacted diagnostics, file paths, or other sensitive information. If a question requires private details, first ask the maintainer how to provide them privately without including those details in your public message.

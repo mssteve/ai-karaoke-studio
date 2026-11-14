@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How Karaoke Studio handles local media, microphone access, AI model downloads, diagnostics, and your privacy controls.">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Privacy Policy — Karaoke Studio</title>
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #09090d; color: #e8e6f0; line-height: 1.75; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(ellipse at top left, #221333 0, transparent 42rem); }
+    a { color: #d6b3ff; text-underline-offset: .22em; overflow-wrap: anywhere; }
+    a:hover { color: #f0deff; }
+    a:focus-visible { outline: 3px solid #c084fc; outline-offset: 5px; border-radius: 2px; }
+    .skip { position: absolute; top: -6rem; left: 1rem; padding: .6rem 1rem; background: #191322; }
+    .skip:focus { top: 1rem; }
+    .shell { max-width: 56rem; margin-inline: auto; padding: 2rem clamp(1.1rem, 5vw, 3rem); }
+    header { padding-block: 1rem 2rem; border-bottom: 1px solid #393043; }
+    .brand { display: inline-block; font-weight: 700; text-decoration: none; letter-spacing: .03em; }
+    .eyebrow { color: #d6b3ff; font-size: .8rem; font-weight: 650; letter-spacing: .15em; text-transform: uppercase; margin: 2.5rem 0 .4rem; }
+    h1 { font-size: clamp(2.4rem, 7vw, 4rem); line-height: 1.1; letter-spacing: -.045em; margin: 0 0 1.2rem; color: #fff; }
+    .effective { color: #bbb5c9; margin-bottom: 0; }
+    nav { padding: 1.2rem 0; border-bottom: 1px solid #393043; }
+    nav ul { display: flex; flex-wrap: wrap; gap: .45rem 1.4rem; list-style: none; padding: 0; margin: 0; font-size: .92rem; }
+    main { padding-block: .7rem 2rem; }
+    section { scroll-margin-top: 1.5rem; }
+    h2 { font-size: 1.35rem; line-height: 1.4; color: #f3edff; margin: 2.2rem 0 .8rem; }
+    p { margin: 0 0 1.1rem; overflow-wrap: anywhere; }
+    footer { border-top: 1px solid #393043; padding-block: 1.5rem; color: #bbb5c9; font-size: .9rem; }
+    footer p { margin: 0; }
+    @media print {
+      :root { color-scheme: light; background: white; color: black; }
+      body { background: white; }
+      .shell { max-width: none; padding: 0; }
+      h1, h2, a, .effective { color: black; }
+      nav, .skip, .eyebrow, footer { display: none; }
+      h2 { break-after: avoid; }
+      a { text-decoration: underline; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#policy">Skip to privacy policy</a>
+  <div class="shell">
+    <header>
+      <a class="brand" href="../" aria-label="Karaoke Studio home">← Karaoke Studio</a>
+      <p class="eyebrow">Your media. Your control.</p>
+      <h1>Privacy policy</h1>
+      <p class="effective">Effective date: <time datetime="2026-11-14">November 14, 2026</time></p>
+    </header>
+    <nav aria-label="Privacy policy sections">
+      <ul>
+        <li><a href="#about">Overview</a></li>
+        <li><a href="#media">Media &amp; preferences</a></li>
+        <li><a href="#microphone">Microphone</a></li>
+        <li><a href="#internet">Internet &amp; third parties</a></li>
+        <li><a href="#diagnostics">Diagnostics</a></li>
+        <li><a href="#storage">Storage &amp; security</a></li>
+        <li><a href="#deletion">Deletion</a></li>
+        <li><a href="#changes">Changes</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+    <main id="policy" tabindex="-1">
+      <section id="about" aria-labelledby="about-title">
+        <h2 id="about-title">1. About this policy</h2>
+        <p>This policy describes how the Karaoke Studio Windows desktop app handles information. Karaoke Studio works with media you choose and uses local AI processing. You do not need an app account. The app does not upload your songs, lyrics, library, or microphone audio to a developer-operated service or a cloud transcription service.</p>
+      </section>
+      <section id="media" aria-labelledby="media-title">
+        <h2 id="media-title">2. Media, library, and preferences</h2>
+        <p>When you add an MP3 or MP4 file, the app reads that file from its existing location. It saves library information such as the file path, file name or song title, artist field, import date, and processing status. File paths and media content may contain personal information.</p>
+        <p>Processing creates local audio copies and derived files, including extracted audio, separated stems, enhanced audio, vocal and instrumental versions, and recognized lyrics with timing and language information. Lyrics you type or paste are also saved locally. These files are used to provide playback, karaoke creation, lyric editing, and processing recovery; they are not sent to an online AI service.</p>
+        <p>The app also saves playlist names and entries, Queue and History entries, the selected playlist and cursor, and interface and recognition-language preferences. These records let you resume using your library after restarting the app.</p>
+      </section>
+      <section id="microphone" aria-labelledby="microphone-title">
+        <h2 id="microphone-title">3. Optional microphone access</h2>
+        <p>The microphone starts off. Turning on Mic requests audio access, subject to your Windows microphone permissions. The app uses live microphone sound for local monitoring through your selected system output, with optional echo and volume controls. It calculates audio-level and device-performance indicators in memory to display meters and help diagnose monitoring problems.</p>
+        <p>The app does not record microphone audio to a file, save it in your library, transcribe it, or transmit it over the internet. Turn Mic off to stop capture, or close the app. Muting the output or setting monitor volume to zero does not stop microphone capture while Mic remains on. You can also manage microphone access in Windows Settings. The app does not request camera access.</p>
+      </section>
+      <section id="internet" aria-labelledby="internet-title">
+        <h2 id="internet-title">4. Internet connections and third parties</h2>
+        <p>Local processing is not the same as having no internet connections. On first transcription, or when required model files are missing, the app downloads the Whisper speech-recognition model and related configuration from Hugging Face (huggingface.co) and its file-delivery infrastructure. Downloaded files are cached locally for reuse. Once the required files are available, media processing can run offline.</p>
+        <p>Download providers necessarily receive connection information, including your IP address, the requested model-file address, and normal request metadata. This is a model-file download, not an upload of your media or lyrics. Providers handle those requests under their own privacy policies; see <a href="https://huggingface.co/privacy">https://huggingface.co/privacy</a>.</p>
+        <p>Microsoft Store and Windows may separately process installation, update, purchase, device, or diagnostic information under Microsoft's policies and your platform settings. See <a href="https://privacy.microsoft.com/privacystatement">https://privacy.microsoft.com/privacystatement</a>. The app has no built-in developer-operated update-checking service.</p>
+        <p>Opening this policy or the project repository in your browser connects to GitHub. GitHub handles website requests and any information you submit there under its own policy: <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement</a>. This policy page has no added analytics, external fonts, or scripts. Storage providers, backup tools, and synchronization services you use may separately handle files in locations they manage.</p>
+      </section>
+      <section id="diagnostics" aria-labelledby="diagnostics-title">
+        <h2 id="diagnostics-title">5. Diagnostics and support sharing</h2>
+        <p>Karaoke Studio writes troubleshooting logs locally. They can contain timestamps, app version, CPU-resource information, library counts and locations, processing or playback failures, error messages, and technical stack traces. Errors can include file names, full file paths, or other information from the affected operation. Do not assume logs are anonymous.</p>
+        <p>The Diagnostics button opens the local logs folder; it does not send a report. The app does not include usage analytics, advertising trackers, or automatic crash-report uploads. Support information reaches the maintainer only if you choose to share it, for example through GitHub. Review and redact logs and screenshots before sharing them.</p>
+        <p>Packaged releases disable the optional local automation interface by default. If explicitly enabled for support or development, its Windows named pipe allows local programs with access to inspect library and playback information, control the app, and save screenshots in the logs folder. Development launches enable this interface. It is not an internet diagnostic server; enable it only when needed and use trusted local software.</p>
+      </section>
+      <section id="storage" aria-labelledby="storage-title">
+        <h2 id="storage-title">6. Storage and security</h2>
+        <p>App-managed data is stored in the Windows user profile's application-data area used by Electron, normally in an app-specific folder under %APPDATA%. Installation type or launch configuration may change the exact location. Use Diagnostics to open the logs folder; its parent is the active app-data folder.</p>
+        <p>This folder includes library.json, playlists.json, settings.json, processed audio and lyrics in processed, downloaded speech models in ai-models, and diagnostics in logs. Original imported files remain at their existing locations.</p>
+        <p>The app uses local file storage and operating-system access controls. It does not add its own encryption to media, JSON records, or logs. Other users or software with sufficient access to your Windows profile may be able to read them. Protect your device, account, backups, and any shared storage accordingly.</p>
+      </section>
+      <section id="deletion" aria-labelledby="deletion-title">
+        <h2 id="deletion-title">7. Retention, access, and deletion</h2>
+        <p>Local library records, generated files, playlists, settings, and cached models remain until removed or replaced. The main diagnostic log is reset when it reaches approximately 2 MB; screenshots and other files can remain separately.</p>
+        <p>You can inspect your app-data files, edit lyrics, and manage playlists in the app. Removing a song from the library removes its library and playlist entries, but does not delete the original media or the generated audio and lyric files left on disk.</p>
+        <p>For a complete local reset, close the app and delete its active app-data folder after saving anything you want to keep. This removes the local library, playlists, preferences, processed files, models, and logs in that folder; required model files will download again if you use transcription afterward. Delete original media, exported or shared copies, and backups separately if desired. Uninstalling the app should not be relied on to erase these files. The app does not provide secure erasure or control copies held by third parties.</p>
+      </section>
+      <section id="changes" aria-labelledby="changes-title">
+        <h2 id="changes-title">8. Policy changes</h2>
+        <p>This policy may be updated when the app or its information-handling practices change. The revised policy will show a new effective date. Review the current policy when updating the app.</p>
+      </section>
+      <section id="contact" aria-labelledby="contact-title">
+        <h2 id="contact-title">9. Contact</h2>
+        <p>For privacy questions or requests, contact the Karaoke Studio maintainer through the project repository: <a href="https://github.com/mssteve/ai-karaoke-studio">https://github.com/mssteve/ai-karaoke-studio</a>.</p>
+        <p>GitHub issues and other public repository posts are public. Do not post personal media, unredacted diagnostics, file paths, or other sensitive information. If a question requires private details, first ask the maintainer how to provide them privately without including those details in your public message.</p>
+      </section>
+    </main>
+    <footer>
+      <p><a href="../privacy-policy.txt">Plain-text privacy policy</a> · <a href="../">Back to Karaoke Studio</a></p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -57,6 +57,22 @@ future local engine replacement. The defaults remain Demucs ONNX for separation 
 Whisper small timestamped (`onnx-community/whisper-small_timestamped`) for recognition.
 This boundary does not introduce cloud engines or additional user-selectable engines.
 
+## Project website (GitHub Pages)
+
+The static landing site lives in `docs/` and needs no build step or external assets.
+It introduces the Windows desktop app; it is not a browser-based karaoke player.
+
+Preview it locally with `npm run docs`, then open <http://127.0.0.1:4173/>.
+The privacy policy is at <http://127.0.0.1:4173/privacy> (redirected to `/privacy/`).
+This dependency-free server serves only `docs/`, binds to localhost, and returns
+404 for missing pages. Stop it with **Ctrl+C**. To use another local port, run
+`npm run docs -- --port 4174`.
+
+To publish it, open the repository's **Settings → Pages**, select **Deploy from a
+branch**, choose the branch containing the site and the **/docs** folder, then
+**Save**. GitHub displays the published URL after deployment. All site assets use
+relative paths so the page also works under a repository project URL.
+
 ## Windows installer
 
 Build the NSIS setup with:
@@ -176,7 +192,7 @@ wrong tokens, stale PID identities, and forged parent command lines fail closed.
 environment values are deleted from the low-level process immediately after consumption.
 
 Protected-source identity hashes file paths and contents across application source,
-all scripts (excluding generated `scripts\qa-artifacts`), package metadata/lockfile,
+all production/shared scripts, package metadata/lockfile,
 build/configuration, and canonical skills. In-operation stability additionally records
 byte lengths and modification times. Artifact provenance is bound to the approved
 canonical staging aggregate; live-worktree stability remains a separate defense and is
@@ -215,9 +231,25 @@ Before publishing, add production icons, privacy/support URLs, Store screenshots
 
 ## Packaged QA
 
-Packaged private automation is disabled by default and is enabled only by the explicit `--enable-private-automation` process flag. The full release gate drives the rendered Add Songs button and native Windows file dialog, runs local AI processing, and exercises all four playback modes:
+QA tests, fixture generators, and newly generated evidence are local-only under
+ignored root `qa\`; runners are not distributed through Git or npm scripts. Existing local suites were migrated
+from `scripts\` to `qa\scripts\`, with generated evidence archived in `qa\artifacts\`.
+Migrated runners default to fresh `qa\runs\` output and `qa\fixtures\` inputs
+instead of reusing archived profiles whose embedded source paths may be stale.
+A fresh checkout must obtain or create its local QA separately; package/release
+automation does not depend on these ignored files. Follow
+[artifact hygiene](.copilot/skills/test-artifact-hygiene/SKILL.md) before running tests.
+
+Packaged private automation is disabled by default and is enabled only by the explicit `--enable-private-automation` process flag. When the local suite is available, the harness drives the rendered Add Songs button and native Windows file dialog, runs local AI processing, and exercises all four playback modes:
 
 ```powershell
-node scripts\create-qa-fixtures.mjs
-node scripts\qa-harness.mjs --app "release\win-unpacked\Karaoke Studio.exe" --process
+node qa\scripts\create-qa-fixtures.mjs
+node qa\scripts\qa-harness.mjs --app "release\win-unpacked\Karaoke Studio.exe" --process
 ```
+
+Preflight the selected runner's individual inputs and outputs first. Historical
+evidence retains its original embedded paths and is not fresh release approval.
+Historical canonical release-approval evidence remains tracked unchanged, and
+absolute-path-bound legacy release fixtures remain ignored in place where moving
+them would invalidate references; these are outstanding migration exceptions, not
+proof that all historical QA artifacts have been relocated.
