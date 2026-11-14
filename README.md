@@ -68,20 +68,33 @@ This dependency-free server serves only `docs/`, binds to localhost, and returns
 404 for missing pages. Stop it with **Ctrl+C**. To use another local port, run
 `npm run docs -- --port 4174`.
 
-To publish it, open the repository's **Settings → Pages** and select **GitHub
-Actions** as the source (not **Deploy from a branch**). Run **Deploy website and
-immutable downloads** from the Actions tab on `main`; subsequent changes to
-`docs/`, the Pages helper, or its workflow deploy automatically. GitHub displays
+The recommended source in **Settings → Pages** is **GitHub Actions**. Run **Deploy
+website and immutable downloads** from the Actions tab on `main`; every subsequent
+push to `main` deploys automatically, including changes outside `docs/`. GitHub displays
 the published URL after deployment. All site assets use relative paths so the
 page also works under a repository project URL.
 
 Changing an existing branch-based Pages source requires repository permission to
 manage Pages. The standard `configure-pages` action reads the existing site; it
 does not migrate its source, even with `enablement: true`. This workflow does not
-change administrative settings. If the source cannot be changed, workflow-mode
-publishing remains an unverified prerequisite; a legacy branch deployment may
-overwrite an Actions deployment. Do not consider the download URL published or
-stable until deployment and the Pages source have been verified.
+change administrative settings.
+
+If that permission is unavailable, the workflow also supports the existing
+**legacy `main` / `/docs`** source. Its build runs normally in parallel, but custom
+deployment waits for all built-in `dynamic/pages/pages-build-deployment` runs
+for the **same commit SHA** to finish before publishing the complete artifact.
+Workflow mode skips that wait. A separate custom concurrency group avoids blocking
+the built-in run. The gate refuses other source configurations, skips revisions
+no longer at `main`, and fails with retry instructions if a matching legacy run
+does not appear or finish within 10 minutes. Manual dispatch reuses the same-SHA
+legacy run; it does not require another push.
+
+Legacy mode can briefly serve the docs-only site before the custom deployment
+restores downloads. A failed custom build/deploy, or a later manual legacy rerun,
+can leave downloads absent; resolve the failure and rerun the custom workflow.
+Switching the source to GitHub Actions avoids that legacy replacement window.
+Verify both workflows finish in the intended order and the direct URL remains
+available before treating a legacy-mode rollout as complete.
 
 The workflow stages only `docs/` plus the fixed downloads in
 `scripts/prepare-pages.mjs`, then uploads and deploys a Pages artifact. No installer
@@ -99,7 +112,7 @@ Every deployment follows the source's HTTPS redirects and verifies size, MZ head
 and SHA256 before upload; missing or changed assets fail deployment instead of
 substituting `latest`. Append future downloads without changing or removing this
 pin or its destination: the distribution URL must remain immutable for Store
-certification. A failed build leaves the previously deployed site intact.
+certification. In workflow mode, a failed build leaves the deployed site intact.
 
 GitHub Pages publishes a complete replacement site on each deployment, with a
 1 GB site limit and a soft 100 GB/month bandwidth limit. The helper rejects links

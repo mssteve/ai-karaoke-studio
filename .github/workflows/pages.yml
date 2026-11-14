@@ -3,17 +3,13 @@ name: Deploy website and immutable downloads
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - 'scripts/prepare-pages.mjs'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: immutable-download-pages
   cancel-in-progress: false
 
 jobs:
@@ -44,14 +40,68 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
+      actions: read
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Wait for legacy Pages and reject stale revisions
+        id: order
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        timeout-minutes: 12
+        with:
+          script: |
+            core.setOutput('deploy', 'false');
+            const repo = context.repo;
+            const isCurrent = async () => {
+              const { data } = await github.rest.git.getRef({ ...repo, ref: 'heads/main' });
+              if (data.object.sha === context.sha) return true;
+              core.notice(`Skipping stale revision ${context.sha}; main is now ${data.object.sha}.`);
+              return false;
+            };
+            const deadline = Date.now() + 10 * 60 * 1000;
+            let ready = false;
+            let pending = 'No matching legacy Pages run appeared.';
+            while (Date.now() < deadline) {
+              if (!await isCurrent()) return;
+              const { data: pages } = await github.rest.repos.getPages(repo);
+              if (pages.build_type === 'workflow') {
+                core.info('Pages uses workflow mode; no legacy deployment wait is needed.');
+                ready = true;
+                break;
+              }
+              if (pages.build_type !== 'legacy' ||
+                  pages.source?.branch !== 'main' || pages.source?.path !== '/docs') {
+                throw new Error('Unsupported Pages source. Use GitHub Actions, or legacy main /docs.');
+              }
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                ...repo, head_sha: context.sha, per_page: 100
+              });
+              const legacy = runs.filter(run =>
+                run.path === 'dynamic/pages/pages-build-deployment' &&
+                run.head_sha === context.sha && run.head_branch === 'main'
+              );
+              if (legacy.length && legacy.every(run => run.status === 'completed')) {
+                core.info(`Legacy Pages finished: ${legacy.map(run => `${run.id} (${run.conclusion})`).join(', ')}.`);
+                ready = true;
+                break;
+              }
+              pending = legacy.length
+                ? `Legacy Pages still running: ${legacy.map(run => `${run.id} (${run.status})`).join(', ')}.`
+                : 'No matching legacy Pages run appeared.';
+              core.info(pending);
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            if (!ready) {
+              throw new Error(`${pending} Timed out after 10 minutes for ${context.sha}. Inspect "pages build and deployment" for this SHA, resolve any blocked run, then rerun this workflow. No custom deployment was attempted.`);
+            }
+            if (await isCurrent()) core.setOutput('deploy', 'true');
       - name: Deploy verified Pages artifact
         id: deployment
+        if: steps.order.outputs.deploy == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
