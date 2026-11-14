@@ -68,10 +68,45 @@ This dependency-free server serves only `docs/`, binds to localhost, and returns
 404 for missing pages. Stop it with **Ctrl+C**. To use another local port, run
 `npm run docs -- --port 4174`.
 
-To publish it, open the repository's **Settings → Pages**, select **Deploy from a
-branch**, choose the branch containing the site and the **/docs** folder, then
-**Save**. GitHub displays the published URL after deployment. All site assets use
-relative paths so the page also works under a repository project URL.
+To publish it, open the repository's **Settings → Pages** and select **GitHub
+Actions** as the source (not **Deploy from a branch**). Run **Deploy website and
+immutable downloads** from the Actions tab on `main`; subsequent changes to
+`docs/`, the Pages helper, or its workflow deploy automatically. GitHub displays
+the published URL after deployment. All site assets use relative paths so the
+page also works under a repository project URL.
+
+Changing an existing branch-based Pages source requires repository permission to
+manage Pages. The standard `configure-pages` action reads the existing site; it
+does not migrate its source, even with `enablement: true`. This workflow does not
+change administrative settings. If the source cannot be changed, workflow-mode
+publishing remains an unverified prerequisite; a legacy branch deployment may
+overwrite an Actions deployment. Do not consider the download URL published or
+stable until deployment and the Pages source have been verified.
+
+The workflow stages only `docs/` plus the fixed downloads in
+`scripts/prepare-pages.mjs`, then uploads and deploys a Pages artifact. No installer
+is committed, built, signed, installed, or repackaged. The primary website CTA
+continues to use GitHub Releases. After a successful deployment, this direct
+distribution URL serves the original installer bytes without a release redirect:
+
+<https://mssteve.github.io/ai-karaoke-studio/downloads/v0.4.0/Karaoke.Studio-Setup-0.4.0.exe>
+
+The `v0.4.0` source is the public GitHub Release asset
+`https://github.com/mssteve/ai-karaoke-studio/releases/download/v0.4.0/Karaoke.Studio-Setup-0.4.0.exe`,
+pinned to **495,769,406 bytes** and SHA256
+`cc3420d6a72bd9bcb655f364149d935fa31940054617143766d66f0f395d405c`.
+Every deployment follows the source's HTTPS redirects and verifies size, MZ header,
+and SHA256 before upload; missing or changed assets fail deployment instead of
+substituting `latest`. Append future downloads without changing or removing this
+pin or its destination: the distribution URL must remain immutable for Store
+certification. A failed build leaves the previously deployed site intact.
+
+GitHub Pages publishes a complete replacement site on each deployment, with a
+1 GB site limit and a soft 100 GB/month bandwidth limit. The helper rejects links
+and limits staged files to 950,000,000 bytes, leaving archive headroom. Retaining
+more large installers may require a different hosting service; never silently
+drop an existing distribution URL to fit. This deployment is static hosting,
+not Windows release/signing approval. The local docs preview remains docs-only.
 
 ## Windows installer
 
